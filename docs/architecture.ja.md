@@ -87,7 +87,7 @@ granovetter1973/
 | `largest_component_fraction` | 最大連結成分サイズ / n | 網到達 / 分断 |
 | `cascade_rounds` | 飽和までのラウンド数 | 経路長の代理量 |
 
-`reach_by_strength` のみ `metrics.rs` 内の BFS で計算する (辺重みで隣接をフィルタ)．socsim-net に強度フィルタ付き到達可能性ヘルパが無いためである．他の構造指標はすべて socsim-net ヘルパを直接利用する．
+`reach_by_strength` は socsim-net の `reachable_from(seed, |w| *w == strength)` (辺重みでフィルタした部分網上の BFS) を利用する．`reachable_from` はシード自身を含むため，従来の「到達人数はシードを除く」という定義に揃えるためシード集合を差し引く．構造指標はすべて socsim-net ヘルパを直接利用する．
 
 ## 再現性・決定論
 

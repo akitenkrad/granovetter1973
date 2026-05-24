@@ -87,7 +87,7 @@ A single root seed is split into independent, labelled streams (socsim conventio
 | `largest_component_fraction` | largest connected component size / n | network reach / fragmentation |
 | `cascade_rounds` | rounds to saturation | path-length proxy |
 
-`reach_by_strength` is the one metric computed by a BFS in `metrics.rs` (filtering neighbours by edge weight), because socsim-net has no strength-filtered reachability helper. All other structural metrics use socsim-net helpers directly.
+`reach_by_strength` uses socsim-net's `reachable_from(seed, |w| *w == strength)` (a BFS over the edge-weight-filtered subgraph). Since `reachable_from` includes the seed itself, the seed set is subtracted to keep the established "reached count excludes the seed" definition. All structural metrics now use socsim-net helpers directly.
 
 ## Reproducibility & determinism
 

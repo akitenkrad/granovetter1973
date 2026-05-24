@@ -4,10 +4,11 @@
 //! 辺重みとして保持されているので，局所ブリッジ判定 ([`WeightedNetwork::local_bridges`])・
 //! 平均経路長 ([`WeightedNetwork::average_path_length`])・連結成分
 //! ([`WeightedNetwork::component_membership`] / `largest_component_size`) は
-//! ライブラリヘルパを直接利用する．強度別到達 (`reach_by_strength`) のみ，辺重みで
-//! 隣接をフィルタする BFS を metrics 側で実装する (ヘルパに該当機能がないため)．
+//! ライブラリヘルパを直接利用する．強度別到達 (`reach_by_strength`) も socsim-net の
+//! [`WeightedNetwork::reachable_from`] (辺重み述語でフィルタした部分網上の BFS;
+//! socsim issue #24 で追加) を利用する．
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 use socsim_core::AgentId;
@@ -50,10 +51,11 @@ pub fn forbidden_triad_rate(net: &WeightedNetwork<TieStrength>) -> f64 {
     ids.dedup();
 
     for &a in &ids {
-        // A の強紐帯隣接を集める．
+        // A の強紐帯隣接を集める (重み付き隣接イテレータで一度に強度判定)．
         let strong_nb: Vec<AgentId> = net
-            .neighbors_iter(a)
-            .filter(|&x| net.edge_weight(a, x) == Some(&TieStrength::Strong))
+            .weighted_neighbors(a)
+            .filter(|&(_, w)| *w == TieStrength::Strong)
+            .map(|(x, _)| x)
             .collect();
         for i in 0..strong_nb.len() {
             for j in (i + 1)..strong_nb.len() {
@@ -83,43 +85,31 @@ pub fn reach_fraction(world: &WeakTieWorld) -> f64 {
     world.n_informed() as f64 / n as f64
 }
 
-/// 到達ノード集合 (BFS で網全体の連結到達可能集合; 拡散確率は無視した構造的到達)．
+/// 単一強度の辺のみで辿った構造的到達ノード集合 (拡散確率は無視した構造的到達)．
 ///
-/// シード集合から辿れるノードを `strength` でフィルタしながら BFS する．
-/// `strength=None` なら全辺，`Some(s)` なら重み `s` の辺のみを辿る．
+/// シード集合の各シードから socsim-net の [`WeightedNetwork::reachable_from`] を
+/// 重み `strength` の辺に限定して呼び，その和集合を返す．`reachable_from` は
+/// シード自身を含むため，無向網ではシードごとの到達集合の和集合は複数シード BFS の
+/// 到達集合と一致する．
 fn structural_reach(
     net: &WeightedNetwork<TieStrength>,
     seeds: &[AgentId],
-    strength: Option<TieStrength>,
+    strength: TieStrength,
 ) -> BTreeSet<AgentId> {
-    let mut visited: BTreeSet<AgentId> = BTreeSet::new();
-    let mut queue: VecDeque<AgentId> = VecDeque::new();
-    for &s in seeds {
-        if visited.insert(s) {
-            queue.push_back(s);
-        }
-    }
-    while let Some(cur) = queue.pop_front() {
-        for nb in net.neighbors_iter(cur) {
-            let ok = match strength {
-                None => true,
-                Some(s) => net.edge_weight(cur, nb) == Some(&s),
-            };
-            if ok && visited.insert(nb) {
-                queue.push_back(nb);
-            }
-        }
-    }
-    visited
+    seeds
+        .iter()
+        .flat_map(|&s| net.reachable_from(s, |w| *w == strength))
+        .collect()
 }
 
 /// 強紐帯のみ / 弱紐帯のみで辿った構造的到達人数 (論文 Rapoport–Horvath)．
 ///
-/// 戻り値は (強紐帯のみ到達, 弱紐帯のみ到達)．シード自身は除く．
+/// 戻り値は (強紐帯のみ到達, 弱紐帯のみ到達)．シード自身は除く
+/// (`reachable_from` はシードを含むため，シード集合を差し引く)．
 pub fn reach_by_strength(net: &WeightedNetwork<TieStrength>, seeds: &[AgentId]) -> (usize, usize) {
     let seed_set: BTreeSet<AgentId> = seeds.iter().copied().collect();
-    let strong = structural_reach(net, seeds, Some(TieStrength::Strong));
-    let weak = structural_reach(net, seeds, Some(TieStrength::Weak));
+    let strong = structural_reach(net, seeds, TieStrength::Strong);
+    let weak = structural_reach(net, seeds, TieStrength::Weak);
     let n_strong = strong.difference(&seed_set).count();
     let n_weak = weak.difference(&seed_set).count();
     (n_strong, n_weak)
