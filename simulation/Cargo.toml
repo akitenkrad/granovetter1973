@@ -1,0 +1,28 @@
+[package]
+name = "granovetter-simulation"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "granovetter_ties"
+path = "src/lib.rs"
+
+[[bin]]
+name = "granovetter"
+path = "src/main.rs"
+
+[dependencies]
+rand        = { version = "0.8", features = ["small_rng"] }
+csv         = "1.3"
+serde       = { version = "1.0", features = ["derive"] }
+clap        = { version = "4.5", features = ["derive"] }
+chrono      = "0.4"
+serde_json  = "1.0"
+
+# social-simulation framework (socsim) — ABM のエンジン基盤．純網モデルのため
+# core + engine + net の 3 crate (socsim-grid は不使用)．commit は Cargo.lock で固定．
+# socsim-net の weighted/undirected ネットワーク (issue #18) で紐帯強度を辺重みとして保持し，
+# 局所ブリッジ解析 (issue #20) を直接利用する．
+socsim-core   = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-core" }
+socsim-engine = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-engine" }
+socsim-net    = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-net" }

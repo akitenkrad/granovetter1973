@@ -1,0 +1,13 @@
+[project]
+name = "granovetter1973-workspace"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "granovetter-tools",
+]
+
+[tool.uv.workspace]
+members = ["tools"]
+
+[tool.uv.sources]
+granovetter-tools = { workspace = true }

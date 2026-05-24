@@ -1,0 +1,220 @@
+//! 初期化と実行ドライバ (SimulationBuilder 配線)．
+
+use std::fs::{self, File};
+use std::io::BufWriter;
+
+use csv::Writer;
+
+use socsim_core::{derive_seed, AgentId, SimRng};
+use socsim_engine::{RandomActivationScheduler, SimulationBuilder};
+
+use crate::config::{Config, RemovePolicy};
+use crate::mechanisms::DiffusionMechanism;
+use crate::metrics::{edge_rows, Metrics};
+use crate::network::{self, GeneratedNetwork};
+use crate::world::{TieStrength, WeakTieWorld};
+
+// 単一 root シードから用途別の独立な決定論的 RNG ストリームを派生させるラベル．
+/// 網生成・シード選択用 RNG ラベル．
+const RNG_WORLD_INIT: u64 = 0;
+/// socsim エンジン (= SI 感染確率の抽出・活性化順) 用 RNG ラベル．
+const RNG_ENGINE: u64 = 1;
+/// アブレーションのランダム除去用 RNG ラベル．
+const RNG_ABLATION: u64 = 2;
+
+/// シミュレーション全体の実行結果．
+pub struct SimulationResult {
+    /// 飽和時の世界状態 (メトリクス計算・edges.csv 用)．
+    pub world: WeakTieWorld,
+    /// 各ラウンドの到達数履歴 (n_informed_history)．
+    pub history: Vec<usize>,
+    /// 飽和までのラウンド数．
+    pub cascade_rounds: usize,
+    /// 使用した root シード．
+    pub seed: u64,
+}
+
+/// 設定から世界状態を初期化する (網生成 + シード選択)．
+///
+/// 網生成・シード選択は `derive_seed(root, &[0])` の init ストリームで行う．
+/// シードは ID 0 を含む先頭 `n_seeds` 個 (クラスタ 0 から拡散開始; 弱紐帯除去の効果を
+/// クラスタ間到達の崩壊として観察しやすくするため固定する)．
+pub fn init_world(cfg: &Config, root: u64) -> WeakTieWorld {
+    let mut init_rng = SimRng::from_seed(derive_seed(root, &[RNG_WORLD_INIT]));
+    let GeneratedNetwork { net, cluster_of } = network::generate(cfg, &mut init_rng);
+
+    let n = cfg.n_agents();
+    let n_seeds = cfg.n_seeds.clamp(1, n.max(1));
+    let seeds: Vec<AgentId> = (0..n_seeds as u64).map(AgentId).collect();
+
+    WeakTieWorld::new(net, cluster_of, seeds, cfg.max_iterations as u64)
+}
+
+/// アブレーション方策に従って世界状態の網から辺を除去する．
+///
+/// `remove_edge` を用いて該当辺を消す (世界状態を破壊的に変更)．
+/// `Random` は弱紐帯と同数の辺をランダムに除去する (対照群)．
+pub fn apply_ablation(world: &mut WeakTieWorld, cfg: &Config, root: u64) {
+    let all_edges: Vec<(AgentId, AgentId, TieStrength)> = world
+        .net
+        .weighted_edges()
+        .map(|(a, b, w)| (a, b, *w))
+        .collect();
+
+    let to_remove: Vec<(AgentId, AgentId)> = match cfg.remove {
+        RemovePolicy::None => Vec::new(),
+        RemovePolicy::Weak => all_edges
+            .iter()
+            .filter(|(_, _, w)| *w == TieStrength::Weak)
+            .map(|(a, b, _)| (*a, *b))
+            .collect(),
+        RemovePolicy::Strong => all_edges
+            .iter()
+            .filter(|(_, _, w)| *w == TieStrength::Strong)
+            .map(|(a, b, _)| (*a, *b))
+            .collect(),
+        RemovePolicy::Random => {
+            use rand::seq::SliceRandom;
+            let n_weak = all_edges
+                .iter()
+                .filter(|(_, _, w)| *w == TieStrength::Weak)
+                .count();
+            let mut rng = SimRng::from_seed(derive_seed(root, &[RNG_ABLATION]));
+            let mut pairs: Vec<(AgentId, AgentId)> =
+                all_edges.iter().map(|(a, b, _)| (*a, *b)).collect();
+            pairs.shuffle(&mut rng);
+            pairs.into_iter().take(n_weak).collect()
+        }
+    };
+
+    for (a, b) in to_remove {
+        world.net.remove_edge(a, b);
+    }
+}
+
+/// シミュレーションを実行する (網生成は呼び出し側が `init_world` で済ませて渡す)．
+///
+/// socsim の [`Simulation`](socsim_engine::Simulation) エンジンを駆動する．
+/// 拡散は [`DiffusionMechanism`] が `Interaction` フェーズで同期適用し，
+/// 活性化順は [`RandomActivationScheduler`] が与える (同期更新なので順序は結果に
+/// 無関係だがイベント駆動拡張用に確保)．飽和または全到達で `request_stop` する．
+pub fn run_diffusion(world: WeakTieWorld, cfg: &Config, root: u64) -> SimulationResult {
+    let mut sim = SimulationBuilder::new(world)
+        .scheduler(Box::new(RandomActivationScheduler))
+        .seed(derive_seed(root, &[RNG_ENGINE]))
+        .add_mechanism(Box::new(DiffusionMechanism::new(
+            cfg.diffusion,
+            cfg.beta,
+            cfg.theta,
+        )))
+        .build();
+
+    let mut cascade_rounds = 0usize;
+    sim.run_observed(|report| {
+        cascade_rounds = report.t as usize;
+    })
+    .expect("シミュレーションの実行に失敗");
+
+    let world = sim.world().clone();
+    let history = world.n_informed_history.clone();
+    SimulationResult {
+        world,
+        history,
+        cascade_rounds,
+        seed: root,
+    }
+}
+
+/// 設定から 1 試行を最初から最後まで実行する (init → ablation → diffusion)．
+pub fn run(cfg: &Config, root: u64) -> SimulationResult {
+    let mut world = init_world(cfg, root);
+    if cfg.remove != RemovePolicy::None {
+        apply_ablation(&mut world, cfg, root);
+    }
+    run_diffusion(world, cfg, root)
+}
+
+/// メトリクス履歴を CSV に保存する．
+pub fn save_metrics(metrics: &[Metrics], output_dir: &str) {
+    let path = format!("{}/metrics.csv", output_dir);
+    let file = File::create(&path).expect("metrics.csv の作成に失敗");
+    let mut wtr = Writer::from_writer(BufWriter::new(file));
+    for m in metrics {
+        wtr.serialize(m).expect("メトリクス書き込みに失敗");
+    }
+    wtr.flush().expect("フラッシュに失敗");
+}
+
+/// 網の辺リストを edges.csv に保存する (a, b, strength)．
+pub fn save_edges(world: &WeakTieWorld, output_dir: &str) {
+    let path = format!("{}/edges.csv", output_dir);
+    let file = File::create(&path).expect("edges.csv の作成に失敗");
+    let mut wtr = Writer::from_writer(BufWriter::new(file));
+    for row in edge_rows(&world.net) {
+        wtr.serialize(row).expect("辺の書き込みに失敗");
+    }
+    wtr.flush().expect("フラッシュに失敗");
+}
+
+/// ノードのクラスタ割当を nodes.csv に保存する (id, cluster, is_seed)．
+pub fn save_nodes(world: &WeakTieWorld, output_dir: &str) {
+    let path = format!("{}/nodes.csv", output_dir);
+    let file = File::create(&path).expect("nodes.csv の作成に失敗");
+    let mut wtr = Writer::from_writer(BufWriter::new(file));
+    wtr.write_record(["id", "cluster", "is_seed"])
+        .expect("ヘッダ書き込みに失敗");
+    let seeds: std::collections::BTreeSet<AgentId> = world.seeds.iter().copied().collect();
+    for (&id, &c) in &world.cluster_of {
+        wtr.write_record(&[
+            id.0.to_string(),
+            c.to_string(),
+            if seeds.contains(&id) { "1" } else { "0" }.to_string(),
+        ])
+        .expect("レコード書き込みに失敗");
+    }
+    wtr.flush().expect("フラッシュに失敗");
+}
+
+/// 出力ディレクトリを作成する．
+pub fn ensure_output_dir(output_dir: &str) {
+    fs::create_dir_all(output_dir).expect("出力ディレクトリの作成に失敗");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::DiffusionModel;
+
+    fn test_config() -> Config {
+        Config {
+            clusters: 5,
+            cluster_size: 10,
+            p_strong: 0.6,
+            p_bridge: 0.5,
+            p_weak_intra: 0.0,
+            diffusion: DiffusionModel::Si,
+            beta: 0.9,
+            theta: 0.2,
+            remove: RemovePolicy::None,
+            n_seeds: 1,
+            max_iterations: 200,
+            seed: Some(42),
+            output_dir: "results".to_string(),
+        }
+    }
+
+    #[test]
+    fn same_seed_is_deterministic() {
+        let a = run(&test_config(), 42);
+        let b = run(&test_config(), 42);
+        assert_eq!(a.world.n_informed(), b.world.n_informed());
+        assert_eq!(a.cascade_rounds, b.cascade_rounds);
+        assert_eq!(a.history, b.history);
+    }
+
+    #[test]
+    fn history_starts_with_seed_count() {
+        let r = run(&test_config(), 42);
+        assert_eq!(r.history[0], 1); // n_seeds=1．
+    }
+}
