@@ -7,7 +7,7 @@ use csv::Writer;
 
 use socsim_core::{derive_seed, AgentId, Mechanism, SimRng};
 use socsim_engine::{RandomActivationScheduler, SimulationBuilder};
-use socsim_social_dynamics::{SiContagionMechanism, ThresholdContagionMechanism};
+use socsim_mechanisms::{SiContagionMechanism, ThresholdContagionMechanism};
 
 use crate::config::{Config, DiffusionModel, RemovePolicy};
 use crate::metrics::{edge_rows, Metrics};

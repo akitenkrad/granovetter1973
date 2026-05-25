@@ -27,7 +27,7 @@ socsim-net    = { git = "https://github.com/akitenkrad/rs-social-simulation-tool
 # 汎用 social-dynamics メカニズム (SI / 閾値 contagion)．拡散の状態更新を本クレートの
 # SiContagionMechanism / ThresholdContagionMechanism に委譲する (issue #42/#43 で SI が
 # ctx.agent_order を走査するよう修正され，本 repo の旧 DiffusionMechanism と byte 等価)．
-socsim-social-dynamics = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-social-dynamics" }
+socsim-mechanisms = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-mechanisms" }
 # 出力ヘルパ (timestamp / latest symlink / CSV・JSON writer)．
 # ライブラリモードのボイラープレートを集約した共有クレット．
 socsim-results = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-results" }
