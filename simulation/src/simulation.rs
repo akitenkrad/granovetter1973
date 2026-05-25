@@ -5,11 +5,11 @@ use std::io::BufWriter;
 
 use csv::Writer;
 
-use socsim_core::{derive_seed, AgentId, SimRng};
+use socsim_core::{derive_seed, AgentId, Mechanism, SimRng};
 use socsim_engine::{RandomActivationScheduler, SimulationBuilder};
+use socsim_social_dynamics::{SiContagionMechanism, ThresholdContagionMechanism};
 
-use crate::config::{Config, RemovePolicy};
-use crate::mechanisms::DiffusionMechanism;
+use crate::config::{Config, DiffusionModel, RemovePolicy};
 use crate::metrics::{edge_rows, Metrics};
 use crate::network::{self, GeneratedNetwork};
 use crate::world::{TieStrength, WeakTieWorld};
@@ -94,29 +94,42 @@ pub fn apply_ablation(world: &mut WeakTieWorld, cfg: &Config, root: u64) {
 
 /// シミュレーションを実行する (網生成は呼び出し側が `init_world` で済ませて渡す)．
 ///
-/// socsim の [`Simulation`](socsim_engine::Simulation) エンジンを駆動する．
-/// 拡散は [`DiffusionMechanism`] が `Interaction` フェーズで同期適用し，
-/// 活性化順は [`RandomActivationScheduler`] が与える (同期更新なので順序は結果に
-/// 無関係だがイベント駆動拡張用に確保)．飽和または全到達で `request_stop` する．
+/// socsim の [`Simulation`](socsim_engine::Simulation) エンジンを駆動する．拡散の状態更新は
+/// 汎用 social-dynamics メカニズム ([`SiContagionMechanism`] / [`ThresholdContagionMechanism`])
+/// に委譲する．両者とも `Interaction` フェーズで同期ラウンドを適用し，SI は
+/// `ctx.agent_order` (= [`RandomActivationScheduler`] のシャッフル順) を走査して各 inactive
+/// エージェント × active 隣接で独立 Bernoulli(β) を引き，1 つでも成功すれば感染する
+/// (break-on-first-success)．閾値は `active/max(deg,1) ≥ θ` で決定論的に活性化する．
+/// 飽和 (新規 0) または全到達でメカニズムが `request_stop` する．
+///
+/// 旧 repo 固有 `DiffusionMechanism` と同一の隣接走査順 (`Neighbors::neighbors_of` =
+/// `net.neighbors`) ・RNG 抽出順・飽和判定を保つため出力はバイト等価である．各ラウンド後の
+/// informed 数を `n_informed_history` へ記録する処理だけは観測コールバックで肩代わりする
+/// (メカニズム自体は履歴を持たないため)．
 pub fn run_diffusion(world: WeakTieWorld, cfg: &Config, root: u64) -> SimulationResult {
+    let mechanism: Box<dyn Mechanism<WeakTieWorld>> = match cfg.diffusion {
+        DiffusionModel::Si => Box::new(SiContagionMechanism::new(cfg.beta)),
+        DiffusionModel::Threshold => Box::new(ThresholdContagionMechanism::new(cfg.theta)),
+    };
+
     let mut sim = SimulationBuilder::new(world)
         .scheduler(Box::new(RandomActivationScheduler))
         .seed(derive_seed(root, &[RNG_ENGINE]))
-        .add_mechanism(Box::new(DiffusionMechanism::new(
-            cfg.diffusion,
-            cfg.beta,
-            cfg.theta,
-        )))
+        .add_mechanism(mechanism)
         .build();
 
     let mut cascade_rounds = 0usize;
+    let mut history: Vec<usize> = vec![sim.world().n_informed()];
     sim.run_observed(|report| {
         cascade_rounds = report.t as usize;
+        history.push(report.world.n_informed());
     })
     .expect("シミュレーションの実行に失敗");
 
-    let world = sim.world().clone();
-    let history = world.n_informed_history.clone();
+    let mut world = sim.world().clone();
+    // 旧メカニズムは world.n_informed_history を維持していた．出力には現れないが
+    // 世界状態フィールドとしての意味 (各ラウンドの到達数) を保つため再構成する．
+    world.n_informed_history = history.clone();
     SimulationResult {
         world,
         history,

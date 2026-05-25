@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use socsim_core::{AgentId, SimClock, WorldState};
+use socsim_core::{AgentId, BinaryState, Neighbors, SimClock, WorldState};
 use socsim_net::WeightedNetwork;
 
 /// 紐帯強度 (論文の 2 値: 強い / 弱い．欠如は辺の不在で表現)．
@@ -107,5 +107,29 @@ impl WorldState for WeakTieWorld {
 
     fn clock_mut(&mut self) -> &mut SimClock {
         &mut self.clock
+    }
+}
+
+impl Neighbors for WeakTieWorld {
+    /// 紐帯に沿った影響集合 = socsim-net の無向隣接そのもの．
+    ///
+    /// 旧 `DiffusionMechanism` が用いた `net.neighbors_iter(id)` と同一の
+    /// 隣接集合・走査順を返す (`neighbors` と `neighbors_iter` は同じ
+    /// `graph.neighbors(ni)` を辿るためバイト等価)．contagion メカニズムの
+    /// RNG 抽出順 (inactive エージェント × active 隣接) を不変に保つ．
+    fn neighbors_of(&self, id: AgentId) -> Vec<AgentId> {
+        self.net.neighbors(id)
+    }
+}
+
+impl BinaryState for WeakTieWorld {
+    /// active = informed (拡散状態の真偽値)．
+    fn is_active(&self, id: AgentId) -> bool {
+        self.is_informed(id)
+    }
+
+    /// informed フラグを書き換える (同期更新の一括書き戻しで使用)．
+    fn set_active(&mut self, id: AgentId, active: bool) {
+        self.informed.insert(id, active);
     }
 }

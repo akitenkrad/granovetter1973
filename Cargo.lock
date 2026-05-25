@@ -238,6 +238,7 @@ dependencies = [
  "socsim-engine",
  "socsim-net",
  "socsim-results",
+ "socsim-social-dynamics",
 ]
 
 [[package]]
@@ -493,7 +494,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 [[package]]
 name = "socsim-core"
 version = "0.1.0"
-source = "git+https://github.com/akitenkrad/rs-social-simulation-tools?branch=main#0a819c8c77bad6e91e76ef4c3aaafc10610cf967"
+source = "git+https://github.com/akitenkrad/rs-social-simulation-tools?branch=main#4a554876f900bc93495fe87e9600b9cb05dcd00b"
 dependencies = [
  "serde",
  "serde_json",
@@ -504,7 +505,7 @@ dependencies = [
 [[package]]
 name = "socsim-engine"
 version = "0.1.0"
-source = "git+https://github.com/akitenkrad/rs-social-simulation-tools?branch=main#0a819c8c77bad6e91e76ef4c3aaafc10610cf967"
+source = "git+https://github.com/akitenkrad/rs-social-simulation-tools?branch=main#4a554876f900bc93495fe87e9600b9cb05dcd00b"
 dependencies = [
  "rand",
  "serde",
@@ -515,7 +516,7 @@ dependencies = [
 [[package]]
 name = "socsim-net"
 version = "0.1.0"
-source = "git+https://github.com/akitenkrad/rs-social-simulation-tools?branch=main#0a819c8c77bad6e91e76ef4c3aaafc10610cf967"
+source = "git+https://github.com/akitenkrad/rs-social-simulation-tools?branch=main#4a554876f900bc93495fe87e9600b9cb05dcd00b"
 dependencies = [
  "petgraph",
  "rand",
@@ -527,7 +528,7 @@ dependencies = [
 [[package]]
 name = "socsim-results"
 version = "0.1.0"
-source = "git+https://github.com/akitenkrad/rs-social-simulation-tools?branch=main#0a819c8c77bad6e91e76ef4c3aaafc10610cf967"
+source = "git+https://github.com/akitenkrad/rs-social-simulation-tools?branch=main#4a554876f900bc93495fe87e9600b9cb05dcd00b"
 dependencies = [
  "chrono",
  "csv",
@@ -538,11 +539,20 @@ dependencies = [
 [[package]]
 name = "socsim-rng"
 version = "0.1.0"
-source = "git+https://github.com/akitenkrad/rs-social-simulation-tools?branch=main#0a819c8c77bad6e91e76ef4c3aaafc10610cf967"
+source = "git+https://github.com/akitenkrad/rs-social-simulation-tools?branch=main#4a554876f900bc93495fe87e9600b9cb05dcd00b"
 dependencies = [
  "rand",
  "rand_chacha",
  "serde",
+]
+
+[[package]]
+name = "socsim-social-dynamics"
+version = "0.1.0"
+source = "git+https://github.com/akitenkrad/rs-social-simulation-tools?branch=main#4a554876f900bc93495fe87e9600b9cb05dcd00b"
+dependencies = [
+ "rand",
+ "socsim-core",
 ]
 
 [[package]]
