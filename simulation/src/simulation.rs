@@ -1,6 +1,6 @@
 //! 初期化と実行ドライバ (SimulationBuilder 配線)．
 
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::BufWriter;
 
 use csv::Writer;
@@ -135,25 +135,22 @@ pub fn run(cfg: &Config, root: u64) -> SimulationResult {
 }
 
 /// メトリクス履歴を CSV に保存する．
+///
+/// 各行を `serialize` し先頭行にヘッダを書く csv クレートの標準挙動を
+/// `socsim_results::write_csv` に委譲する (従来の手書き writer とバイト等価)．
+/// 行構造体 [`Metrics`] は repo 固有のままで，writer だけを共有化する．
 pub fn save_metrics(metrics: &[Metrics], output_dir: &str) {
     let path = format!("{}/metrics.csv", output_dir);
-    let file = File::create(&path).expect("metrics.csv の作成に失敗");
-    let mut wtr = Writer::from_writer(BufWriter::new(file));
-    for m in metrics {
-        wtr.serialize(m).expect("メトリクス書き込みに失敗");
-    }
-    wtr.flush().expect("フラッシュに失敗");
+    socsim_results::write_csv(metrics, &path).expect("metrics.csv の書き込みに失敗");
 }
 
 /// 網の辺リストを edges.csv に保存する (a, b, strength)．
+///
+/// `edge_rows` の serde 行を `socsim_results::write_csv` で書き出す
+/// (従来の手書き writer とバイト等価)．
 pub fn save_edges(world: &WeakTieWorld, output_dir: &str) {
     let path = format!("{}/edges.csv", output_dir);
-    let file = File::create(&path).expect("edges.csv の作成に失敗");
-    let mut wtr = Writer::from_writer(BufWriter::new(file));
-    for row in edge_rows(&world.net) {
-        wtr.serialize(row).expect("辺の書き込みに失敗");
-    }
-    wtr.flush().expect("フラッシュに失敗");
+    socsim_results::write_csv(&edge_rows(&world.net), &path).expect("edges.csv の書き込みに失敗");
 }
 
 /// ノードのクラスタ割当を nodes.csv に保存する (id, cluster, is_seed)．
@@ -177,7 +174,7 @@ pub fn save_nodes(world: &WeakTieWorld, output_dir: &str) {
 
 /// 出力ディレクトリを作成する．
 pub fn ensure_output_dir(output_dir: &str) {
-    fs::create_dir_all(output_dir).expect("出力ディレクトリの作成に失敗");
+    socsim_results::ensure_dir(output_dir).expect("出力ディレクトリの作成に失敗");
 }
 
 #[cfg(test)]

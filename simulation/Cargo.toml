@@ -16,8 +16,6 @@ rand        = { version = "0.8", features = ["small_rng"] }
 csv         = "1.3"
 serde       = { version = "1.0", features = ["derive"] }
 clap        = { version = "4.5", features = ["derive"] }
-chrono      = "0.4"
-serde_json  = "1.0"
 
 # social-simulation framework (socsim) — ABM のエンジン基盤．純網モデルのため
 # core + engine + net の 3 crate (socsim-grid は不使用)．commit は Cargo.lock で固定．
@@ -26,3 +24,6 @@ serde_json  = "1.0"
 socsim-core   = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-core" }
 socsim-engine = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-engine" }
 socsim-net    = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-net" }
+# 出力ヘルパ (timestamp / latest symlink / CSV・JSON writer)．
+# ライブラリモードのボイラープレートを集約した共有クレット．
+socsim-results = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-results" }

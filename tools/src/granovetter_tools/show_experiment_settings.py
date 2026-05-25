@@ -8,71 +8,45 @@ Usage:
     granovetter-tools show-experiment-settings
     granovetter-tools show-experiment-settings --results-dir results/20260524_153000
     granovetter-tools show-experiment-settings --results-dir results/latest --json
+
+I/O・run 設定テーブルは共有ヘルパ `socsim_tools` に委譲する (出力はバイト等価)．
+本論文は非 LLM のため run_metadata ブロックは無い．sweep 設定テーブル (複合行 p_bridge
+走査 / θ 候補連結) と `--json` の `kind` フィールドは granovetter 固有なので本モジュールに残す．
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
+from socsim_tools.io import load_config, resolve_results_dir
+from socsim_tools.settings import render_run_config
 
-def _resolve_results_dir(arg: str) -> Path:
-    """ユーザ指定の results_dir を絶対パスに解決する (symlink も実体へ)．"""
-    p = Path(arg)
-    if not p.is_absolute():
-        candidates = [Path.cwd() / arg, p]
-        for c in candidates:
-            if c.exists():
-                p = c
-                break
-        else:
-            p = candidates[0]
-    return Path(os.path.realpath(p))
-
-
-def _find_config_file(results_dir: Path) -> tuple[Path, str]:
-    """config.json (run/ablation) か sweep_config.json (sweep) を探す．"""
-    run_cfg = results_dir / "config.json"
-    sweep_cfg = results_dir / "sweep_config.json"
-    if run_cfg.exists():
-        return run_cfg, "run"
-    if sweep_cfg.exists():
-        return sweep_cfg, "sweep"
-    raise FileNotFoundError(
-        f"設定ファイルが見つかりません: {results_dir}\n"
-        f"  期待されるファイル: config.json (run/ablation) または sweep_config.json (sweep)"
-    )
-
-
-def render_run_config(cfg: dict, source: Path) -> str:
-    lines: list[str] = []
-    lines.append("=" * 70)
-    lines.append(f"実行設定 ({cfg.get('command', 'run')})")
-    lines.append("=" * 70)
-    lines.append(f"設定ファイル: {source}")
-    lines.append("-" * 70)
-    lines.append(f"クラスタ数 K       : {cfg.get('clusters', '-')}")
-    lines.append(f"クラスタサイズ     : {cfg.get('cluster_size', '-')}")
-    lines.append(f"総エージェント数   : {cfg.get('n_agents', '-')}")
-    lines.append(f"強紐帯密度 p_strong: {cfg.get('p_strong', '-')}")
-    lines.append(f"橋渡し率 p_bridge  : {cfg.get('p_bridge', '-')}")
-    lines.append(f"クラスタ内弱紐帯   : {cfg.get('p_weak_intra', '-')}")
-    lines.append(f"拡散モデル         : {cfg.get('diffusion', '-')}")
-    lines.append(f"SI 感染確率 β      : {cfg.get('beta', '-')}")
-    lines.append(f"閾値 θ             : {cfg.get('theta', '-')}")
-    lines.append(f"除去対象 (remove)  : {cfg.get('remove', '-')}")
-    lines.append(f"シード数 n_seeds   : {cfg.get('n_seeds', '-')}")
-    lines.append(f"最大反復           : {cfg.get('max_iterations', '-')}")
-    lines.append(f"乱数シード基点     : {cfg.get('seed', '-')}")
-    lines.append(f"出力先             : {cfg.get('output_dir', '-')}")
-    lines.append("=" * 70)
-    return "\n".join(lines)
+# config キー → 表示ラベル (右コロン位置を揃えるため空白パディング済み)．
+# render_run_config が `f"{label}: {value}"` で整形するため，ラベルは末尾の
+# `: ` を含めず，従来の run レンダラと同じ桁揃えになるようパディングする．
+FIELD_LABELS = {
+    "clusters": "クラスタ数 K       ",
+    "cluster_size": "クラスタサイズ     ",
+    "n_agents": "総エージェント数   ",
+    "p_strong": "強紐帯密度 p_strong",
+    "p_bridge": "橋渡し率 p_bridge  ",
+    "p_weak_intra": "クラスタ内弱紐帯   ",
+    "diffusion": "拡散モデル         ",
+    "beta": "SI 感染確率 β      ",
+    "theta": "閾値 θ             ",
+    "remove": "除去対象 (remove)  ",
+    "n_seeds": "シード数 n_seeds   ",
+    "max_iterations": "最大反復           ",
+    "seed": "乱数シード基点     ",
+    "output_dir": "出力先             ",
+}
 
 
 def render_sweep_config(cfg: dict, source: Path) -> str:
+    """sweep 設定テーブルを整形する (granovetter 固有; 複合行 + θ 候補連結)．"""
     lines: list[str] = []
     lines.append("=" * 70)
     lines.append("実行設定 (sweep)")
@@ -115,20 +89,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    results_dir = _resolve_results_dir(args.results_dir)
+    results_dir = resolve_results_dir(args.results_dir)
     if not results_dir.exists():
         print(f"エラー: ディレクトリが存在しません: {results_dir}", file=sys.stderr)
         return 1
 
-    cfg_path, kind = _find_config_file(results_dir)
-    with cfg_path.open() as f:
-        cfg = json.load(f)
+    try:
+        cfg, cfg_path = load_config(results_dir)
+    except FileNotFoundError as exc:
+        print(f"エラー: {exc}", file=sys.stderr)
+        return 1
+    kind = "run" if cfg_path.name == "config.json" else "sweep"
 
     if args.json:
         payload = {"source": str(cfg_path), "kind": kind, "config": cfg}
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     elif kind == "run":
-        print(render_run_config(cfg, cfg_path))
+        title = f"実行設定 ({cfg.get('command', 'run')})"
+        print(render_run_config(cfg, cfg_path, FIELD_LABELS, title=title))
     else:
         print(render_sweep_config(cfg, cfg_path))
     return 0

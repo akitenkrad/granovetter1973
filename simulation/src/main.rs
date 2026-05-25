@@ -6,13 +6,8 @@
 //!
 //! Phase 3 の `reproduce` (論文 Fig./Table 一括再現) は拡張点として未実装．
 
-use std::fs::{self, File};
-use std::io::BufWriter;
-use std::path::Path;
-
-use chrono::Local;
 use clap::{Parser, Subcommand};
-use csv::Writer;
+use socsim_results::{ensure_dir, refresh_latest_symlink, timestamp, write_csv, write_json};
 
 use granovetter_ties::config::{
     parse_diffusion, parse_remove, Config, DiffusionModel, RemovePolicy,
@@ -206,18 +201,6 @@ fn float_range(min: f64, max: f64, step: f64) -> Vec<f64> {
         .collect()
 }
 
-/// latest シンボリックリンクを (再) 作成する．
-fn refresh_latest(output_dir: &str, target: &str) {
-    let symlink_path = Path::new(output_dir).join("latest");
-    if symlink_path.is_symlink() {
-        let _ = fs::remove_file(&symlink_path);
-    }
-    #[cfg(unix)]
-    {
-        let _ = std::os::unix::fs::symlink(target, &symlink_path);
-    }
-}
-
 /// `(seed, run)` から各試行に独立なシードを派生させる (explicit identity)．
 fn run_seed(root: u64, run_idx: usize) -> u64 {
     socsim_core::derive_seed(root, &[run_idx as u64])
@@ -229,7 +212,7 @@ fn run_seed(root: u64, run_idx: usize) -> u64 {
 
 fn cmd_run(args: RunArgs) {
     let diffusion = parse_diffusion(&args.diffusion).unwrap_or_else(|e| panic!("{}", e));
-    let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let timestamp = timestamp();
     let output_dir = format!("{}/{}", args.output_dir, timestamp);
 
     let cfg = Config {
@@ -293,15 +276,13 @@ fn cmd_run(args: RunArgs) {
     save_edges(&world, &cfg.output_dir);
     save_nodes(&world, &cfg.output_dir);
 
-    // config.json
+    // config.json (pretty-print JSON; socsim_results::write_json に委譲)．
     {
         let path = format!("{}/config.json", cfg.output_dir);
-        let file = File::create(&path).expect("config.json の作成に失敗");
-        serde_json::to_writer_pretty(BufWriter::new(file), &cfg.to_run_config_json("run"))
-            .expect("config.json の書き込みに失敗");
+        write_json(&cfg.to_run_config_json("run"), &path).expect("config.json の書き込みに失敗");
     }
 
-    refresh_latest(&args.output_dir, &timestamp);
+    let _ = refresh_latest_symlink(&args.output_dir, &timestamp);
 
     // 試行平均を表示．
     let avg = |f: &dyn Fn(&Metrics) -> f64| -> f64 {
@@ -339,7 +320,7 @@ fn cmd_run(args: RunArgs) {
 fn cmd_ablation(args: AblationArgs) {
     let diffusion = parse_diffusion(&args.diffusion).unwrap_or_else(|e| panic!("{}", e));
     let remove = parse_remove(&args.remove).unwrap_or_else(|e| panic!("{}", e));
-    let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let timestamp = timestamp();
     let output_dir = format!("{}/{}", args.output_dir, timestamp);
 
     let mut cfg = Config {
@@ -411,12 +392,11 @@ fn cmd_ablation(args: AblationArgs) {
     cfg.output_dir = output_dir.clone();
     {
         let path = format!("{}/config.json", cfg.output_dir);
-        let file = File::create(&path).expect("config.json の作成に失敗");
-        serde_json::to_writer_pretty(BufWriter::new(file), &cfg.to_run_config_json("ablation"))
+        write_json(&cfg.to_run_config_json("ablation"), &path)
             .expect("config.json の書き込みに失敗");
     }
 
-    refresh_latest(&args.output_dir, &timestamp);
+    let _ = refresh_latest_symlink(&args.output_dir, &timestamp);
 
     let n = args.runs as f64;
     let baseline_reach = sum_baseline / n;
@@ -493,9 +473,9 @@ fn cmd_sweep(args: SweepArgs) {
 
     let p_bridges = float_range(args.p_bridge_min, args.p_bridge_max, args.p_bridge_step);
 
-    let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let timestamp = timestamp();
     let sweep_dir = format!("{}/{}_sweep", args.output_dir, timestamp);
-    fs::create_dir_all(&sweep_dir).expect("sweep ディレクトリの作成に失敗");
+    ensure_dir(&sweep_dir).expect("sweep ディレクトリの作成に失敗");
 
     let n_total = p_bridges.len() * thetas.len() * args.runs;
 
@@ -562,14 +542,10 @@ fn cmd_sweep(args: SweepArgs) {
         }
     }
 
+    // sweep_summary.csv (各行を serialize; socsim_results::write_csv に委譲)．
     {
         let path = format!("{}/sweep_summary.csv", sweep_dir);
-        let file = File::create(&path).expect("sweep_summary.csv の作成に失敗");
-        let mut wtr = Writer::from_writer(BufWriter::new(file));
-        for row in &rows {
-            wtr.serialize(row).expect("サマリ行の書き込みに失敗");
-        }
-        wtr.flush().expect("フラッシュに失敗");
+        write_csv(&rows, &path).expect("sweep_summary.csv の書き込みに失敗");
     }
 
     {
@@ -590,12 +566,10 @@ fn cmd_sweep(args: SweepArgs) {
             seed: args.seed,
         };
         let path = format!("{}/sweep_config.json", sweep_dir);
-        let file = File::create(&path).expect("sweep_config.json の作成に失敗");
-        serde_json::to_writer_pretty(BufWriter::new(file), &config_json)
-            .expect("sweep_config.json の書き込みに失敗");
+        write_json(&config_json, &path).expect("sweep_config.json の書き込みに失敗");
     }
 
-    refresh_latest(&args.output_dir, &format!("{}_sweep", timestamp));
+    let _ = refresh_latest_symlink(&args.output_dir, &format!("{}_sweep", timestamp));
 
     println!("-------------------------------------");
     println!("スイープ完了: {} 実行", n_total);
