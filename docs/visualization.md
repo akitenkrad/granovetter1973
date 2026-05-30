@@ -9,9 +9,10 @@ uv sync
 uv run granovetter-tools visualize
 uv run granovetter-tools visualize-sweep
 uv run granovetter-tools show-experiment-settings --results-dir results/latest
+uv run granovetter-tools reproduce
 ```
 
-The CLI dispatches to one of three subcommands via argparse; arguments after the subcommand are passed straight to the corresponding module.
+The CLI dispatches to one of four subcommands via argparse; arguments after the subcommand are passed straight to the corresponding module.
 
 ## `visualize` — network layout & metrics
 
@@ -53,6 +54,30 @@ Pretty-prints the `config.json` (run / ablation) or `sweep_config.json` (sweep) 
 uv run granovetter-tools show-experiment-settings --results-dir results/latest
 uv run granovetter-tools show-experiment-settings --results-dir results/latest --json
 ```
+
+## `reproduce` — one-shot paper reproduction
+
+Calls the Rust `reproduce` subcommand (see [CLI](cli.md)) once, then reads the emitted `claim_a_ablation.csv`, `claim_b_threshold.csv`, and `reproduce_summary.json` and renders comparison figures into the same `reproduce_{ts}/figures/` directory:
+
+- `claim_a_weak_tie_bridges.png` — reach by removal policy (`none` / `weak` / `strong` / `random`) as bars, with the `1/K` local-reach reference line and the PASS/off verdict annotated. The weak bar collapses to `1/K` while the random (control) bar stays at full reach.
+- `claim_b_threshold_tipping.png` — reach vs threshold `θ` as a curve, with the tipping band shaded and the PASS/off verdict annotated. A small `θ` shift drops reach from a global cascade to a local one.
+
+```bash
+uv run granovetter-tools reproduce              # full paper-value reproduction
+uv run granovetter-tools reproduce --quick      # smoke-test scale
+uv run granovetter-tools reproduce --seed 123
+uv run granovetter-tools reproduce --skip-build # if cargo build was already run
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--output-dir` | results | output base directory (a `reproduce_{ts}/` is created beneath it) |
+| `--seed` | 42 | RNG seed base |
+| `--quick` | off | smoke-test mode (reduced scale; not for paper-value verification) |
+| `--skip-build` | off | skip `cargo build --release` |
+| `--workspace-root` | inferred | workspace root override (else inferred from the module location, or `GRANOVETTER_PROJECT_ROOT`) |
+
+The process exits non-zero if any claim's verdict is not `PASS`.
 
 ## Note on fonts
 

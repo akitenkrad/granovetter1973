@@ -33,6 +33,10 @@ main = build_dispatcher(
             "実行結果ディレクトリの設定 (config.json / sweep_config.json) の表示",
             "granovetter_tools.show_experiment_settings:main",
         ),
+        "reproduce": (
+            "論文 (1973/1978) 主要主張の一括再現 (観測値 vs 期待値 + PASS/off 判定)",
+            "granovetter_tools.reproduce_paper:main",
+        ),
     },
 )
 

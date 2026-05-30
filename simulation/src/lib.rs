@@ -18,5 +18,6 @@
 pub mod config;
 pub mod metrics;
 pub mod network;
+pub mod reproduce;
 pub mod simulation;
 pub mod world;

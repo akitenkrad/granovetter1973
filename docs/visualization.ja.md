@@ -9,9 +9,10 @@ uv sync
 uv run granovetter-tools visualize
 uv run granovetter-tools visualize-sweep
 uv run granovetter-tools show-experiment-settings --results-dir results/latest
+uv run granovetter-tools reproduce
 ```
 
-CLI は argparse で 3 つのサブコマンドにディスパッチする．サブコマンド以降の引数は対応モジュールへそのまま渡される．
+CLI は argparse で 4 つのサブコマンドにディスパッチする．サブコマンド以降の引数は対応モジュールへそのまま渡される．
 
 ## `visualize` — 網レイアウト・メトリクス
 
@@ -53,6 +54,30 @@ uv run granovetter-tools visualize-sweep --sweep_dir results/latest
 uv run granovetter-tools show-experiment-settings --results-dir results/latest
 uv run granovetter-tools show-experiment-settings --results-dir results/latest --json
 ```
+
+## `reproduce` — 論文の一括再現
+
+Rust の `reproduce` サブコマンド ([CLI](cli.ja.md) 参照) を一度呼び，出力された `claim_a_ablation.csv` / `claim_b_threshold.csv` / `reproduce_summary.json` を読んで比較図を同じ `reproduce_{ts}/figures/` 配下に描く:
+
+- `claim_a_weak_tie_bridges.png` — 除去方策 (`none` / `weak` / `strong` / `random`) ごとの到達割合をバーで示し，`1/K` の局所到達基準線と PASS/off 判定を注釈する．弱バーは `1/K` へ崩壊し，ランダム (対照群) バーは満到達のまま残る．
+- `claim_b_threshold_tipping.png` — 到達割合 vs 閾値 `θ` の曲線．ティッピング帯を網掛けし PASS/off 判定を注釈する．`θ` の小さなシフトが到達を大域カスケードから局所カスケードへ落とす．
+
+```bash
+uv run granovetter-tools reproduce              # 論文値でフル再現
+uv run granovetter-tools reproduce --quick      # 動作確認用の縮小規模
+uv run granovetter-tools reproduce --seed 123
+uv run granovetter-tools reproduce --skip-build # 事前に cargo build 済みのとき
+```
+
+| フラグ | 既定値 | 説明 |
+|---|---|---|
+| `--output-dir` | results | 出力ベースディレクトリ (この下に `reproduce_{ts}/` を作る) |
+| `--seed` | 42 | 乱数シード基点 |
+| `--quick` | off | 動作確認用モード (規模縮小; 論文値の検証には使わない) |
+| `--skip-build` | off | `cargo build --release` をスキップ |
+| `--workspace-root` | 推定 | workspace ルートの上書き (未指定時はモジュール位置から推定，または `GRANOVETTER_PROJECT_ROOT`) |
+
+いずれかの claim の判定が `PASS` でなければプロセスは非 0 で終了する．
 
 ## フォントについて
 

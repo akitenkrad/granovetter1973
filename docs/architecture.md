@@ -13,13 +13,13 @@ granovetter1973/
 ├── simulation/                # Rust project (granovetter-simulation, lib granovetter_ties)
 │   ├── Cargo.toml
 │   ├── src/
-│   │   ├── main.rs            # CLI (run / ablation / sweep)
+│   │   ├── main.rs            # CLI (run / ablation / sweep / reproduce)
 │   │   ├── lib.rs             # module re-exports for the binary + integration tests
 │   │   ├── config.rs          # Config + config.json serialization, DiffusionModel / RemovePolicy
 │   │   ├── world.rs           # socsim WorldState impl (WeakTieWorld); TieStrength edge weight
 │   │   ├── network.rs         # clustered weak-tie bridging network generator
-│   │   ├── mechanisms.rs      # socsim Mechanism impl (DiffusionMechanism, synchronous rounds)
 │   │   ├── metrics.rs         # bridges / forbidden triad / reach / path length / reach-by-strength
+│   │   ├── reproduce.rs       # one-shot reproduction of the headline claims (observed vs expected)
 │   │   └── simulation.rs      # init_world + ablation + run driver (SimulationBuilder wiring)
 │   └── tests/
 │       └── integration_test.rs
@@ -93,9 +93,9 @@ A single root seed is split into independent, labelled streams (socsim conventio
 
 For a given seed the whole pipeline (network generation, ablation, diffusion) is deterministic — the integration test asserts identical reach and history across two runs with the same seed.
 
-## Future extensions (Phase 3)
+## Paper reproduction (`reproduce`)
 
-A clean extension point is kept for `reproduce` — a one-shot batch reproduction of the paper's figures/tables (path-length distributions, chain lengths, friend-rank reach). It is not implemented here.
+`simulation/src/reproduce.rs` drives a one-shot reproduction of the paper's headline quantitative claims directly through the library API (no subprocess): **Claim A** (the weak-tie bridge effect — removing the weak ties, which are all of the local bridges, collapses reach to `1/K`, while removing the same number of random edges does not) and **Claim B** (Granovetter 1978 threshold-cascade tipping — a small upward shift in the threshold jumps the final cascade size from global to local). It averages reach over seeded trials, writes `claim_a_ablation.csv` / `claim_b_threshold.csv` and a `reproduce_summary.json` recording each claim's parameters and the observed-vs-expected comparison with a `PASS`/`OFF` verdict. The Python `granovetter-tools reproduce` calls this subcommand and renders the comparison figures. See the [CLI](cli.md) and [Visualization](visualization.md) docs.
 
 ## References
 

@@ -1,10 +1,10 @@
 //! Granovetter (1973)「The Strength of Weak Ties」— 再現実験の CLI エントリポイント．
 //!
-//! `run`      : 1 つの (網構成, 拡散設定) で網生成 + 情報拡散を実行する．
-//! `ablation` : 弱紐帯 / 強紐帯 / ランダム辺を除去して到達範囲の差を計測する．
-//! `sweep`    : パラメータ (p_bridge / theta) を走査して到達割合等を集計する．
-//!
-//! Phase 3 の `reproduce` (論文 Fig./Table 一括再現) は拡張点として未実装．
+//! `run`       : 1 つの (網構成, 拡散設定) で網生成 + 情報拡散を実行する．
+//! `ablation`  : 弱紐帯 / 強紐帯 / ランダム辺を除去して到達範囲の差を計測する．
+//! `sweep`     : パラメータ (p_bridge / theta) を走査して到達割合等を集計する．
+//! `reproduce` : 論文 (1973/1978) の主要な定量的主張を一括再現し，観測値 vs
+//!               期待値の PASS/off 判定付きサマリ + CSV を書き出す．
 
 use clap::{Parser, Subcommand};
 use socsim_results::{ensure_dir, refresh_latest_symlink, timestamp, write_csv, write_json};
@@ -13,6 +13,7 @@ use granovetter_ties::config::{
     parse_diffusion, parse_remove, Config, DiffusionModel, RemovePolicy,
 };
 use granovetter_ties::metrics::{reach_fraction, Metrics};
+use granovetter_ties::reproduce::{run_reproduce, ReproduceOptions};
 use granovetter_ties::simulation::{
     apply_ablation, ensure_output_dir, init_world, run, run_diffusion, save_edges, save_metrics,
     save_nodes,
@@ -40,6 +41,21 @@ enum Commands {
     Ablation(AblationArgs),
     /// パラメータ (p_bridge / theta) を走査して集計する．
     Sweep(SweepArgs),
+    /// 論文 (1973/1978) の主要な定量的主張を一括再現する．
+    Reproduce(ReproduceArgs),
+}
+
+#[derive(Parser, Debug)]
+struct ReproduceArgs {
+    /// 乱数シード基点．
+    #[arg(long, default_value_t = 42)]
+    seed: u64,
+    /// 簡略化モード (クラスタ規模・試行数・θ 解像度を縮小; 動作確認用)．
+    #[arg(long, default_value_t = false)]
+    quick: bool,
+    /// 結果出力ルートディレクトリ (この下に reproduce_<ts>/ を作る)．
+    #[arg(long, default_value = "results")]
+    output_dir: String,
 }
 
 #[derive(Parser, Debug)]
@@ -592,5 +608,15 @@ fn main() {
         Commands::Run(args) => cmd_run(args),
         Commands::Ablation(args) => cmd_ablation(args),
         Commands::Sweep(args) => cmd_sweep(args),
+        Commands::Reproduce(args) => cmd_reproduce(args),
     }
+}
+
+/// 論文主要主張の一括再現を実行する．
+fn cmd_reproduce(args: ReproduceArgs) {
+    run_reproduce(&ReproduceOptions {
+        output_dir: args.output_dir,
+        seed: args.seed,
+        quick: args.quick,
+    });
 }

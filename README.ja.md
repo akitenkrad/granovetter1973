@@ -29,6 +29,9 @@ uv sync
 
 # 直近の実行結果を可視化する (網レイアウト + メトリクス)
 uv run granovetter-tools visualize
+
+# 論文のヘッドライン主張を 1 コマンドで再現する (PASS/off 判定 + 図)
+uv run granovetter-tools reproduce
 ```
 
 ## ドキュメント
@@ -40,7 +43,7 @@ uv run granovetter-tools visualize
 
 ## スコープ
 
-本リポジトリは **Phase 1** (クラスタ弱紐帯ブリッジ網生成器・SI / 閾値拡散メカニズム・`run`・構造命題) と **Phase 2** (パラメータ `sweep` + Python `visualize` / `visualize-sweep`) を実装する．加えて論文の主要結果である **`ablation`** サブコマンド (弱紐帯 / 強紐帯 / ランダム辺除去) も実装する．論文 Fig./Table 一括再現 (`reproduce`, Phase 3) は今後の課題とし，拡張点を残してある．
+本リポジトリは，クラスタ弱紐帯ブリッジ網生成器・SI / 閾値拡散メカニズム・論文の構造的命題を実装し，4 つの Rust サブコマンドとして公開する — `run` (網生成 + 拡散)，`ablation` (弱紐帯 / 強紐帯 / ランダム辺除去; 論文の主要結果)，`sweep` (パラメータスイープ)，`reproduce` (ヘッドラインとなる定量的主張を観測値 vs 期待値の PASS/off 判定付きで一括再現)．加えて Python `granovetter-tools` (`visualize` / `visualize-sweep` / `show-experiment-settings` / `reproduce`) を備える．詳細は [CLI](docs/cli.ja.md) と [可視化](docs/visualization.ja.md) を参照．
 
 ## ライセンス
 

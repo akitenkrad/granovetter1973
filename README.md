@@ -29,6 +29,9 @@ uv sync
 
 # Visualize the most recent run (network layout + metrics)
 uv run granovetter-tools visualize
+
+# Reproduce the paper's headline claims in one command (PASS/off verdicts + figures)
+uv run granovetter-tools reproduce
 ```
 
 ## Documentation
@@ -40,7 +43,7 @@ uv run granovetter-tools visualize
 
 ## Scope
 
-This repository implements **Phase 1** (the clustered weak-tie bridging network generator, the SI / threshold diffusion mechanism, the `run` subcommand, and the structural propositions) and **Phase 2** (the `sweep` over parameters plus the Python `visualize` / `visualize-sweep` tools). It also implements the **`ablation`** subcommand (weak / strong / random edge removal) — the paper's headline result. A one-shot paper reproduction (`reproduce`, Phase 3) is left as future work; a clean extension point is kept.
+This repository implements the clustered weak-tie bridging network generator, the SI / threshold diffusion mechanism, and the paper's structural propositions, exposed through four Rust subcommands — `run` (one network + diffusion), `ablation` (weak / strong / random edge removal, the paper's headline result), `sweep` (parameter sweeps), and `reproduce` (a one-shot reproduction of the headline quantitative claims with observed-vs-expected PASS/off verdicts) — plus the Python `granovetter-tools` (`visualize` / `visualize-sweep` / `show-experiment-settings` / `reproduce`). See the [CLI](docs/cli.md) and [Visualization](docs/visualization.md) docs.
 
 ## License
 
