@@ -2,13 +2,20 @@
 """
 visualize.py — Granovetter (1973) 弱紐帯ブリッジ網 再現実験 可視化スクリプト
 
-results/latest (または --results_dir 指定先) の edges.csv / nodes.csv / metrics.csv を読み，
+run ディレクトリの artifacts/edges.csv・artifacts/nodes.csv と events.jsonl を読み，
 網レイアウト図 (クラスタごとに着色したノード，強紐帯=実線・弱紐帯=赤破線) と，
-metrics.csv の指標バー図を生成する．局所ブリッジ (= 弱紐帯) を強調表示する．
+試行ごとの指標バー図を生成する．局所ブリッジ (= 弱紐帯) を強調表示する．
+
+--results_dir を省略すると
+`runvault path --experiment granovetter --latest --subcommand run --standalone`
+が返す run ディレクトリを対象にする (`runvault` が PATH にある必要がある)．
+試行ごとの指標は metrics.csv ではなく events.jsonl の terminal 行にある
+(時間軸を持たない値を metrics.csv に並べると主キーが衝突するため)．
 
 Usage:
     uv run granovetter-tools visualize
-    uv run granovetter-tools visualize --results_dir results/20260524_153000
+    uv run granovetter-tools visualize --subcommand ablation
+    uv run granovetter-tools visualize --results_dir results/granovetter/run_20260831_...
     uv run granovetter-tools visualize --output_dir out
 
 Outputs:
@@ -26,6 +33,8 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
+
+from runvault.read import artifacts_dir, events_table, figures_dir, runvault_path
 
 # --------------------------------------------------------------------------- #
 # 日本語フォント設定
@@ -66,10 +75,11 @@ def load_nodes(path: str) -> pd.DataFrame | None:
     return pd.read_csv(path)
 
 
-def load_metrics(path: str) -> pd.DataFrame | None:
-    if not os.path.exists(path):
+def load_trials(run_dir: str) -> pd.DataFrame | None:
+    """試行ごとの指標を events.jsonl の terminal 行から読む．"""
+    if not os.path.exists(os.path.join(run_dir, "events.jsonl")):
         return None
-    return pd.read_csv(path)
+    return events_table(run_dir, kind="terminal")
 
 
 def build_graph(edges: pd.DataFrame, nodes: pd.DataFrame | None) -> nx.Graph:
@@ -138,7 +148,7 @@ def save_network_layout(g: nx.Graph, out_path: str, subtitle: str = "") -> None:
 
 
 def save_metrics_summary(df: pd.DataFrame, out_path: str) -> None:
-    """metrics.csv の主要指標を試行平均でバー表示する．"""
+    """試行ごとの主要指標をバー表示する (破線は試行平均)．"""
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), facecolor=COLOR_BG)
     fig.suptitle("Granovetter 弱紐帯ブリッジ網 — メトリクス試行集計", fontsize=13)
 
@@ -178,12 +188,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Granovetter 弱紐帯ブリッジ網 可視化スクリプト",
     )
     p.add_argument(
-        "--results_dir", "--results-dir", default="results/latest",
-        help="Rust シミュレーションの出力ディレクトリ (default: results/latest)",
+        "--results_dir", "--results-dir", default=None,
+        help="run ディレクトリ (省略時は runvault が返す直近の完了 run)",
+    )
+    p.add_argument(
+        "--results_root", "--results-root", default="results",
+        help="結果ルート (default: results)",
+    )
+    p.add_argument(
+        "--experiment", default="granovetter",
+        help="runvault 上の実験名 (default: granovetter)",
+    )
+    p.add_argument(
+        "--subcommand", default="run",
+        help="対象サブコマンド: run / ablation (default: run)",
     )
     p.add_argument(
         "--output_dir", "--output-dir", default=None,
-        help="図の保存先ディレクトリ (default: {results_dir}/figures)",
+        help="図の保存先ディレクトリ (default: run の外の figures/{run_slug})",
     )
     return p.parse_args(argv)
 
@@ -191,18 +213,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
-    edges_path = os.path.join(args.results_dir, "edges.csv")
-    nodes_path = os.path.join(args.results_dir, "nodes.csv")
-    metrics_path = os.path.join(args.results_dir, "metrics.csv")
-    out_dir = args.output_dir if args.output_dir else os.path.join(args.results_dir, "figures")
+    results_dir = args.results_dir
+    if results_dir is None:
+        results_dir = runvault_path(
+            args.experiment, args.results_root,
+            subcommand=args.subcommand, standalone=True,
+        )
+
+    artifacts = artifacts_dir(results_dir)
+    edges_path = os.path.join(artifacts, "edges.csv")
+    nodes_path = os.path.join(artifacts, "nodes.csv")
+    # 図は run が終わった後に作るものなので run ディレクトリの外に置く
+    # (manifest.csv は finish() が確定させるので，後から足すと食い違う)．
+    out_dir = args.output_dir if args.output_dir else figures_dir(results_dir)
 
     os.makedirs(out_dir, exist_ok=True)
 
     print("=== Granovetter 弱紐帯ブリッジ網 可視化 ===")
-    print(f"辺リスト:   {edges_path}")
-    print(f"ノード:     {nodes_path}")
-    print(f"メトリクス: {metrics_path}")
-    print(f"出力先:     {out_dir}")
+    print(f"run:      {results_dir}")
+    print(f"辺リスト: {edges_path}")
+    print(f"ノード:   {nodes_path}")
+    print(f"出力先:   {out_dir}")
     print("-------------------------------------------")
 
     print("[1/2] 網レイアウトを描画中 ...")
@@ -215,12 +246,12 @@ def main(argv: list[str] | None = None) -> None:
         subtitle=f"{g.number_of_nodes()} ノード / {g.number_of_edges()} 辺 (弱紐帯 {n_weak} 本)",
     )
 
-    print("[2/2] メトリクス集計を描画中 ...")
-    df_m = load_metrics(metrics_path)
+    print("[2/2] 試行ごとの指標を描画中 ...")
+    df_m = load_trials(results_dir)
     if df_m is not None and not df_m.empty:
         save_metrics_summary(df_m, os.path.join(out_dir, "metrics_summary.png"))
     else:
-        print("  metrics.csv が無いか空のためスキップ")
+        print("  events.jsonl が無いか terminal 行が空のためスキップ")
 
     print("-------------------------------------------")
     print("完了．出力ファイル一覧:")

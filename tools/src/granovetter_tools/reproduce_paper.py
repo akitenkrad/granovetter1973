@@ -1,10 +1,14 @@
 """reproduce_paper.py — Granovetter (1973/1978) 論文主要主張の一括再現スクリプト．
 
 Rust バイナリの `reproduce` サブコマンド (`cargo run --release -- reproduce ...`)
-を 1 度呼び出し，生成された `reproduce_<ts>/` の CSV (claim_a_ablation.csv /
-claim_b_threshold.csv) と `reproduce_summary.json` を読み込んで比較図 PNG を
-`reproduce_<ts>/figures/` に描く．観測値 vs 期待値の PASS/off 判定は Rust 側で
-計算済みであり，本スクリプトはそれを図と最終ログに反映する．
+を 1 度呼び出し，`runvault path` が返す run ディレクトリの `events.jsonl`
+(除去方策ごと / θ ごとの観測) と `artifacts/reproduce_summary.json` を読み込んで
+比較図 PNG を run の外 (`<results_root>/granovetter/figures/<run_slug>/`) に描く．
+観測値 vs 期待値の PASS/off 判定は Rust 側で計算済みであり，本スクリプトはそれを
+図と最終ログに反映する．
+
+図を run ディレクトリの中に置かないのは，`manifest.csv` を `finish()` が
+確定させるためである．走り終わった後に足したファイルは記録に載らない．
 
 再現する主張:
 
@@ -36,6 +40,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from runvault.read import events_table, figures_dir, runvault_path
+
 # --------------------------------------------------------------------------- #
 # 日本語フォント設定
 # --------------------------------------------------------------------------- #
@@ -53,6 +59,12 @@ if _env_root:
     PROJECT_ROOT = Path(_env_root).resolve()
 else:
     PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+# runvault 上の実験名 (Rust 側 record::EXPERIMENT と同じ)．
+EXPERIMENT = "granovetter"
+# 条件 1 行を表す実験固有のイベント種別 (Rust 側 record と同じ)．
+ABLATION_CONDITION_EVENT = "x.granovetter1973.ablation_condition"
+THRESHOLD_POINT_EVENT = "x.granovetter1973.threshold_point"
 
 COLOR_BG = "#FAFAF8"
 COLOR_PASS = "#2E7D32"
@@ -83,13 +95,12 @@ def ensure_build() -> None:
 
 
 def run_reproduce_binary(output_dir: Path, seed: int, quick: bool) -> Path:
-    """Rust の `reproduce` サブコマンドを呼び出し，生成された reproduce_<ts>/ を返す．
+    """Rust の `reproduce` サブコマンドを呼び出し，書かれた run ディレクトリを返す．
 
-    Rust 側は `<output_dir>/reproduce_<ts>/` を 1 つだけ作るので，呼び出し前後で
-    新しく現れた `reproduce_*` ディレクトリ (最大 mtime) を採用する．
+    ディレクトリ名は runvault が決めるので当てにせず，`runvault path` に
+    «直近に完了した subcommand=reproduce の run» を解決させる．
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    before = {p.name for p in output_dir.iterdir() if p.is_dir()}
 
     args = ["reproduce", "--seed", str(seed), "--output-dir", str(output_dir)]
     if quick:
@@ -98,24 +109,7 @@ def run_reproduce_binary(output_dir: Path, seed: int, quick: bool) -> Path:
     print("=== " + " ".join(cmd) + " ===")
     subprocess.run(cmd, cwd=PROJECT_ROOT, check=True)
 
-    candidates = [
-        p
-        for p in output_dir.iterdir()
-        if p.is_dir() and p.name.startswith("reproduce_") and p.name not in before
-    ]
-    if not candidates:
-        # latest シンボリックリンクを除いた最新 reproduce_* にフォールバック．
-        candidates = [
-            p
-            for p in output_dir.iterdir()
-            if p.is_dir() and p.name.startswith("reproduce_") and p.name != "latest"
-        ]
-    if not candidates:
-        raise RuntimeError(
-            f"reproduce 呼び出し後に reproduce_<ts> ディレクトリが見つかりません: {output_dir}"
-        )
-    candidates.sort(key=lambda p: p.stat().st_mtime)
-    return candidates[-1]
+    return Path(runvault_path(EXPERIMENT, str(output_dir), subcommand="reproduce"))
 
 
 # --------------------------------------------------------------------------- #
@@ -127,9 +121,9 @@ def _verdict_color(verdict: str) -> str:
     return COLOR_PASS if verdict.upper() == "PASS" else COLOR_OFF
 
 
-def render_claim_a(run_dir: Path, summary: dict, figures_dir: Path) -> Path:
+def render_claim_a(run_dir: Path, summary: dict, out_dir: Path) -> Path:
     """Claim A: 除去方策ごとの到達割合バー + 1/K 期待線 + 判定注釈．"""
-    df = pd.read_csv(run_dir / "claim_a_ablation.csv")
+    df = events_table(run_dir, kind=ABLATION_CONDITION_EVENT)
     claim = summary["claim_a"]
     verdict = next(
         c["verdict"] for c in summary["claims"] if c["id"] == "claim_a_weak_tie_bridges"
@@ -179,16 +173,16 @@ def render_claim_a(run_dir: Path, summary: dict, figures_dir: Path) -> Path:
     )
 
     fig.tight_layout()
-    out_path = figures_dir / "claim_a_weak_tie_bridges.png"
+    out_path = out_dir / "claim_a_weak_tie_bridges.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  保存: {out_path}")
     return out_path
 
 
-def render_claim_b(run_dir: Path, summary: dict, figures_dir: Path) -> Path:
+def render_claim_b(run_dir: Path, summary: dict, out_dir: Path) -> Path:
     """Claim B: reach vs θ 曲線 + ティッピング帯の強調 + 判定注釈．"""
-    df = pd.read_csv(run_dir / "claim_b_threshold.csv").sort_values("theta")
+    df = events_table(run_dir, kind=THRESHOLD_POINT_EVENT).sort_values("theta")
     claim = summary["claim_b"]
     verdict = next(
         c["verdict"] for c in summary["claims"] if c["id"] == "claim_b_threshold_tipping"
@@ -237,7 +231,7 @@ def render_claim_b(run_dir: Path, summary: dict, figures_dir: Path) -> Path:
     )
 
     fig.tight_layout()
-    out_path = figures_dir / "claim_b_threshold_tipping.png"
+    out_path = out_dir / "claim_b_threshold_tipping.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  保存: {out_path}")
@@ -261,21 +255,18 @@ def reproduce(output_root: Path, seed: int, quick: bool, skip_build: bool) -> di
         ensure_build()
 
     run_dir = run_reproduce_binary(output_root, seed=seed, quick=quick)
-    summary_path = run_dir / "reproduce_summary.json"
+    summary_path = run_dir / "artifacts" / "reproduce_summary.json"
     with summary_path.open() as f:
         summary = json.load(f)
 
-    figures_dir = run_dir / "figures"
-    figures_dir.mkdir(parents=True, exist_ok=True)
+    # 図は run が終わった後に作るものなので run ディレクトリの外へ書く
+    # (書き戻すと manifest.csv と食い違い，verify --deep が落ちる)．
+    out_dir = Path(figures_dir(run_dir))
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     print("--- 比較図を描画中 ---")
-    fig_a = render_claim_a(run_dir, summary, figures_dir)
-    fig_b = render_claim_b(run_dir, summary, figures_dir)
-    summary["figure_paths"] = [str(fig_a), str(fig_b)]
-
-    # figure_paths を反映したサマリを書き戻す (再現結果のインデックス)．
-    with summary_path.open("w") as f:
-        json.dump(summary, f, indent=2, ensure_ascii=False)
+    render_claim_a(run_dir, summary, out_dir)
+    render_claim_b(run_dir, summary, out_dir)
 
     print("-------------------------------------------")
     print("主張ごとの判定:")
@@ -283,9 +274,10 @@ def reproduce(output_root: Path, seed: int, quick: bool, skip_build: bool) -> di
         print(f"  [{c['verdict']:>4}] {c['id']}")
         print(f"         期待: {c['expectation']}")
         print(f"         観測: {c['observed']}")
+    print(f"run    → {run_dir}")
     print(f"サマリ → {summary_path}")
-    print(f"図一覧 → {figures_dir}")
-    for f in sorted(figures_dir.iterdir()):
+    print(f"図一覧 → {out_dir}")
+    for f in sorted(out_dir.iterdir()):
         if f.is_file():
             size_kb = f.stat().st_size / 1024
             print(f"    {f.name:40s} ({size_kb:6.1f} KB)")

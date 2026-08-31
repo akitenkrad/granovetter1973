@@ -2,15 +2,17 @@
 
 use std::fs::File;
 use std::io::BufWriter;
+use std::path::Path;
 
 use csv::Writer;
+use serde::Serialize;
 
 use socsim_core::{derive_seed, AgentId, Mechanism, SimRng};
 use socsim_engine::{RandomActivationScheduler, SimulationBuilder};
 use socsim_mechanisms::{SiContagionMechanism, ThresholdContagionMechanism};
 
 use crate::config::{Config, DiffusionModel, RemovePolicy};
-use crate::metrics::{edge_rows, Metrics};
+use crate::metrics::edge_rows;
 use crate::network::{self, GeneratedNetwork};
 use crate::world::{TieStrength, WeakTieWorld};
 
@@ -147,23 +149,23 @@ pub fn run(cfg: &Config, root: u64) -> SimulationResult {
     run_diffusion(world, cfg, root)
 }
 
-/// メトリクス履歴を CSV に保存する．
+/// serde 行の並びを CSV に書き出す (先頭行はヘッダ)．
 ///
-/// 各行を `serialize` し先頭行にヘッダを書く csv クレートの標準挙動を
-/// `socsim_results::write_csv` に委譲する (従来の手書き writer とバイト等価)．
-/// 行構造体 [`Metrics`] は repo 固有のままで，writer だけを共有化する．
-pub fn save_metrics(metrics: &[Metrics], output_dir: &str) {
-    let path = format!("{}/metrics.csv", output_dir);
-    socsim_results::write_csv(metrics, &path).expect("metrics.csv の書き込みに失敗");
+/// 旧 `socsim_results::write_csv` の置き換え．csv クレートの `serialize` を
+/// そのまま使うので出力はバイト等価である．
+fn write_csv_rows<T: Serialize>(rows: &[T], path: &str) {
+    let mut wtr = Writer::from_path(path).unwrap_or_else(|e| panic!("{path} の作成に失敗: {e}"));
+    for row in rows {
+        wtr.serialize(row)
+            .unwrap_or_else(|e| panic!("{path} のレコード書き込みに失敗: {e}"));
+    }
+    wtr.flush()
+        .unwrap_or_else(|e| panic!("{path} のフラッシュに失敗: {e}"));
 }
 
 /// 網の辺リストを edges.csv に保存する (a, b, strength)．
-///
-/// `edge_rows` の serde 行を `socsim_results::write_csv` で書き出す
-/// (従来の手書き writer とバイト等価)．
 pub fn save_edges(world: &WeakTieWorld, output_dir: &str) {
-    let path = format!("{}/edges.csv", output_dir);
-    socsim_results::write_csv(&edge_rows(&world.net), &path).expect("edges.csv の書き込みに失敗");
+    write_csv_rows(&edge_rows(&world.net), &format!("{}/edges.csv", output_dir));
 }
 
 /// ノードのクラスタ割当を nodes.csv に保存する (id, cluster, is_seed)．
@@ -187,7 +189,7 @@ pub fn save_nodes(world: &WeakTieWorld, output_dir: &str) {
 
 /// 出力ディレクトリを作成する．
 pub fn ensure_output_dir(output_dir: &str) {
-    socsim_results::ensure_dir(output_dir).expect("出力ディレクトリの作成に失敗");
+    std::fs::create_dir_all(Path::new(output_dir)).expect("出力ディレクトリの作成に失敗");
 }
 
 #[cfg(test)]

@@ -134,10 +134,13 @@ impl Config {
     }
 }
 
-/// `config.json` (run 用) のシリアライズ表現．
+/// runvault の `config.json` に入る実験条件 (`parameters` の中身)．
+///
+/// 実行結果の置き場 (`output_dir`) とサブコマンド名は入れない．前者は runvault が
+/// 決めるものでハッシュに混ぜると同じ条件が別物になり，後者は run のメタデータ
+/// (`run.json` の `subcommand`) が持つ．
 #[derive(Serialize)]
-pub struct RunConfigJson {
-    pub command: &'static str,
+pub struct Parameters {
     pub clusters: usize,
     pub cluster_size: usize,
     pub n_agents: usize,
@@ -149,16 +152,21 @@ pub struct RunConfigJson {
     pub theta: f64,
     pub remove: &'static str,
     pub n_seeds: usize,
+    pub runs: usize,
     pub max_iterations: usize,
-    pub seed: Option<u64>,
-    pub output_dir: String,
+    /// 乱数シード基点．`seed_pointers` が `/seed` を指すので，これだけが
+    /// `config_hash` から外れて `execution_hash` に入る．
+    pub seed: u64,
 }
 
 impl Config {
-    /// `config.json` 用の表現を組み立てる (`command` は呼び出し側が与える)．
-    pub fn to_run_config_json(&self, command: &'static str) -> RunConfigJson {
-        RunConfigJson {
-            command,
+    /// 実験条件を組み立てる．
+    ///
+    /// `runs` (試行数) と `seed` は [`Config`] の外にあるので呼び出し側が渡す．
+    /// シードは `--seed` 省略時に実体化した値であって `Option` ではない —
+    /// 実際に使った値が記録に残らないと run を組み直せない．
+    pub fn to_parameters(&self, runs: usize, seed: u64) -> Parameters {
+        Parameters {
             clusters: self.clusters,
             cluster_size: self.cluster_size,
             n_agents: self.n_agents(),
@@ -170,9 +178,9 @@ impl Config {
             theta: self.theta,
             remove: self.remove.label(),
             n_seeds: self.n_seeds,
+            runs,
             max_iterations: self.max_iterations,
-            seed: self.seed,
-            output_dir: self.output_dir.clone(),
+            seed,
         }
     }
 }

@@ -15,10 +15,11 @@ granovetter1973/
 │   ├── src/
 │   │   ├── main.rs            # CLI (run / ablation / sweep / reproduce)
 │   │   ├── lib.rs             # バイナリ + 統合テスト用のモジュール公開
-│   │   ├── config.rs          # Config + config.json シリアライズ，DiffusionModel / RemovePolicy
+│   │   ├── config.rs          # Config + 実験条件 (runvault parameters)，DiffusionModel / RemovePolicy
 │   │   ├── world.rs           # socsim WorldState 実装 (WeakTieWorld); TieStrength を辺重みに
 │   │   ├── network.rs         # クラスタ弱紐帯ブリッジ網生成器
 │   │   ├── metrics.rs         # ブリッジ / 禁制三者 / 到達 / 経路長 / 強度別到達
+│   │   ├── record.rs          # runvault への記録の作法 (論文メタデータ・イベント・集約)
 │   │   ├── reproduce.rs       # ヘッドライン主張の一括再現 (観測値 vs 期待値)
 │   │   └── simulation.rs      # init_world + アブレーション + run ドライバ (SimulationBuilder 配線)
 │   └── tests/
@@ -95,7 +96,7 @@ granovetter1973/
 
 ## 論文の一括再現 (`reproduce`)
 
-`simulation/src/reproduce.rs` は，論文のヘッドラインとなる定量的主張をライブラリ API 経由で直接 (subprocess なし) 一括再現する: **Claim A** (弱紐帯ブリッジ効果 — 局所ブリッジ *すべて* である弱紐帯を除去すると到達が `1/K` へ崩壊する一方，同数の辺をランダム除去しても崩壊しない) と **Claim B** (Granovetter 1978 の閾値カスケードのティッピング — 閾値の小さな上方シフトが最終カスケードサイズを大域から局所へ跳ばせる)．seed 固定の試行で到達を平均し，`claim_a_ablation.csv` / `claim_b_threshold.csv` と，各 claim のパラメータ + 観測値 vs 期待値 + `PASS`/`OFF` 判定を記録した `reproduce_summary.json` を書き出す．Python `granovetter-tools reproduce` がこのサブコマンドを呼んで比較図を描く．[CLI](cli.ja.md) と [可視化](visualization.ja.md) を参照．
+`simulation/src/reproduce.rs` は，論文のヘッドラインとなる定量的主張をライブラリ API 経由で直接 (subprocess なし) 一括再現する: **Claim A** (弱紐帯ブリッジ効果 — 局所ブリッジ *すべて* である弱紐帯を除去すると到達が `1/K` へ崩壊する一方，同数の辺をランダム除去しても崩壊しない) と **Claim B** (Granovetter 1978 の閾値カスケードのティッピング — 閾値の小さな上方シフトが最終カスケードサイズを大域から局所へ跳ばせる)．seed 固定の試行で到達を平均し，除去方策ごと / `θ` ごとの観測を `events.jsonl` に，両 claim のヘッドラインを `metrics.csv` に，各 claim のパラメータ + 観測値 vs 期待値 + `PASS`/`OFF` 判定を `artifacts/reproduce_summary.json` に書き出す．Python `granovetter-tools reproduce` がこのサブコマンドを呼んで比較図を描く．[CLI](cli.ja.md) と [可視化](visualization.ja.md) を参照．
 
 ## 参考文献
 

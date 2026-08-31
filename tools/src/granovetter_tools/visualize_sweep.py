@@ -2,13 +2,18 @@
 """
 visualize_sweep.py — Granovetter (1973) パラメータスイープ結果 可視化スクリプト
 
-results/latest (または --sweep_dir 指定先) の sweep_summary.csv を読み，
+sweep 親 run の子 run 群から試行ごとの行を組み直し，
 「到達割合 vs 橋渡し率 p_bridge」(θ ごとに線; 閾値モデル時) と，
 「禁制三者率 / 弱紐帯ブリッジ率 vs p_bridge」を生成する．到達割合は試行平均±標準偏差．
 
+--sweep_dir を省略すると
+`runvault path --experiment granovetter --latest --subcommand sweep`
+が返す親 run を対象にする (`runvault` が PATH にある必要がある)．条件ごとの表は
+ディスクに無いので，子 run の config.json と events.jsonl から組み直す．
+
 Usage:
     uv run granovetter-tools visualize-sweep
-    uv run granovetter-tools visualize-sweep --sweep_dir results/20260524_160000_sweep
+    uv run granovetter-tools visualize-sweep --sweep_dir results/granovetter/sweep_20260831_...
 
 Outputs:
     output_dir/
@@ -23,6 +28,8 @@ import os
 
 import matplotlib.pyplot as plt
 import pandas as pd
+
+from runvault.read import figures_dir, runvault_path, sweep_events_table
 
 # --------------------------------------------------------------------------- #
 # 日本語フォント設定
@@ -45,10 +52,8 @@ def theta_color(idx: int) -> str:
 # --------------------------------------------------------------------------- #
 
 def load_summary(sweep_dir: str) -> pd.DataFrame:
-    path = os.path.join(sweep_dir, "sweep_summary.csv")
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"sweep_summary.csv が見つかりません: {path}")
-    return pd.read_csv(path)
+    """試行 1 本 1 行の表を子 run から組み直す (旧 sweep_summary.csv 相当)．"""
+    return sweep_events_table(sweep_dir, ["theta", "p_bridge"], kind="terminal")
 
 
 def aggregate(df: pd.DataFrame) -> pd.DataFrame:
@@ -140,12 +145,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Granovetter パラメータスイープ結果 可視化スクリプト",
     )
     p.add_argument(
-        "--sweep_dir", "--sweep-dir", default="results/latest",
-        help="スイープ出力ディレクトリ (default: results/latest)",
+        "--sweep_dir", "--sweep-dir", default=None,
+        help="sweep 親 run のディレクトリ (省略時は runvault が返す直近の完了 sweep)",
+    )
+    p.add_argument(
+        "--results_root", "--results-root", default="results",
+        help="結果ルート (default: results)",
+    )
+    p.add_argument(
+        "--experiment", default="granovetter",
+        help="runvault 上の実験名 (default: granovetter)",
     )
     p.add_argument(
         "--output_dir", "--output-dir", default=None,
-        help="図の保存先ディレクトリ (default: {sweep_dir}/figures)",
+        help="図の保存先ディレクトリ (default: run の外の figures/{run_slug})",
     )
     return p.parse_args(argv)
 
@@ -153,16 +166,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
-    out_dir = args.output_dir if args.output_dir else os.path.join(args.sweep_dir, "figures")
+    sweep_dir = args.sweep_dir
+    if sweep_dir is None:
+        sweep_dir = runvault_path(args.experiment, args.results_root, subcommand="sweep")
+
+    # 図は run が終わった後に作るものなので run ディレクトリの外に置く．
+    out_dir = args.output_dir if args.output_dir else figures_dir(sweep_dir)
     os.makedirs(out_dir, exist_ok=True)
 
     print("=== Granovetter スイープ可視化 ===")
-    print(f"スイープ: {args.sweep_dir}")
+    print(f"スイープ: {sweep_dir}")
     print(f"出力先:   {out_dir}")
     print("---------------------------------")
 
-    print("[1/2] sweep_summary.csv を読み込み中 ...")
-    df = load_summary(args.sweep_dir)
+    print("[1/2] 子 run から条件ごとの試行を組み直し中 ...")
+    df = load_summary(sweep_dir)
     agg = aggregate(df)
     print(f"      θ {df['theta'].nunique()} 値 × p_bridge {df['p_bridge'].nunique()} 値")
 

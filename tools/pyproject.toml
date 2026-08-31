@@ -10,6 +10,8 @@ dependencies = [
     "pandas>=2.2",
     "pillow>=10.0",
     "socsim-tools",
+    # run ディレクトリの読み方は runvault が持つ (read 側は pandas を使うので extra)．
+    "runvault[read]",
 ]
 
 [project.scripts]

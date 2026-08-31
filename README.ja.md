@@ -6,7 +6,7 @@
 
 Mark Granovetter の古典的論文 *The Strength of Weak Ties* (*American Journal of Sociology* 78(6), 1360–1380) の再現実装である．1973 年の原論文は概念的・プログラム的であり統制実験を持たないため，本プロジェクトはその仮説を **計測可能なエージェントベースモデルに操作化** する．すなわち，密な**強い紐帯**コミュニティ (クラスタ) を疎な**弱い紐帯ブリッジ**で接続したクラスタ網を生成し，その上で情報拡散 (SI / 閾値カスケード) を走らせる．論文の構造的命題 (「すべての (局所) ブリッジは弱い紐帯」「禁じられた三者関係の希少性」) を計測し，**弱い紐帯が到達範囲を支配する** という核心的知見を再現する．弱い紐帯を除去すると拡散はシード所属クラスタに限局し，逆に強い紐帯だけではクラスタ間を橋渡しできない．
 
-紐帯強度は，重み付き無向 `socsim-net` ネットワーク (`WeightedNetwork<TieStrength>`) の **辺重み** として保持する (side-table ではない)．これは設計書が UNCONFIRMED として挙げていた side-table 回避策を，socsim issue #18 (重み付き辺) と #20 (局所ブリッジ・経路長の解析ヘルパ) によって解消したものである．シミュレーション本体は [socsim](https://github.com/akitenkrad/rs-social-simulation-tools) フレームワーク上の Rust，可視化ツールは Python で実装する．
+紐帯強度は，重み付き無向 `socsim-net` ネットワーク (`WeightedNetwork<TieStrength>`) の **辺重み** として保持する (side-table ではない)．これは設計書が UNCONFIRMED として挙げていた side-table 回避策を，socsim issue #18 (重み付き辺) と #20 (局所ブリッジ・経路長の解析ヘルパ) によって解消したものである．シミュレーション本体は [socsim](https://github.com/akitenkrad/rs-social-simulation-tools) フレームワーク上の Rust，可視化ツールは Python で実装する．実行結果は [runvault](https://github.com/akitenkrad/rs-runvault) の run ディレクトリ (`results/granovetter/{run_slug}/`) に記録する — 試行ごとの観測は `events.jsonl`，試行平均は `metrics.csv`，網とノードの一覧は `artifacts/` に入り，図は run の外の `figures/{run_slug}/` に描かれる．
 
 > 閾値カスケードの定式化は Granovetter (1978) *Threshold Models of Collective Behavior* から借用している．1973 年論文自体は概念的である．詳細は [アーキテクチャ](docs/architecture.ja.md) を参照．
 

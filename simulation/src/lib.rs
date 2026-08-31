@@ -10,6 +10,10 @@
 //! 世界状態は `socsim_core::{BinaryState, Neighbors}` を実装し，これらのメカニズムが
 //! 操作できるようにする (`world` モジュール)．
 //!
+//! 実行結果の置き場と同一性は runvault が持つ (`record` モジュールが記録の作法を
+//! まとめる)．タイムスタンプ付きディレクトリも `latest` シンボリックリンクも
+//! こちらでは作らない．
+//!
 //! 紐帯強度は socsim-net の **重み付き無向ネットワーク** (`WeightedNetwork<TieStrength>`)
 //! の辺重みとして保持する (設計書 §4.3 の WorldState 側 side-table 案を socsim issue
 //! #18 の weighted-edge API で置き換えた)．局所ブリッジ判定・平均経路長・連結成分は
@@ -18,6 +22,7 @@
 pub mod config;
 pub mod metrics;
 pub mod network;
+pub mod record;
 pub mod reproduce;
 pub mod simulation;
 pub mod world;

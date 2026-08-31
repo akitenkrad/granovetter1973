@@ -1,15 +1,21 @@
 """granovetter-tools show-experiment-settings — 実行結果の設定表示．
 
-results/{timestamp}/config.json (run / ablation) または
-results/{timestamp}_sweep/sweep_config.json (sweep) を読み，
-実行時に使われた全パラメータを整形表示する．`results/latest` も解決される．
+runvault の run ディレクトリの config.json (封筒．条件は `parameters` の下) を読み，
+実行時に使われた全パラメータを整形表示する．run / ablation か sweep 親かは
+run.json の subcommand で判別する．runvault 以前のフラットな config.json /
+sweep_config.json も読める．
+
+--results-dir を省略すると
+`runvault path --experiment granovetter --latest --subcommand run --standalone`
+が返す run ディレクトリを対象にする (`runvault` が PATH にある必要がある)．
 
 Usage:
     granovetter-tools show-experiment-settings
-    granovetter-tools show-experiment-settings --results-dir results/20260524_153000
-    granovetter-tools show-experiment-settings --results-dir results/latest --json
+    granovetter-tools show-experiment-settings --subcommand sweep
+    granovetter-tools show-experiment-settings --results-dir results/granovetter/run_20260831_...
+    granovetter-tools show-experiment-settings --json
 
-I/O・run 設定テーブルは共有ヘルパ `socsim_tools` に委譲する (出力はバイト等価)．
+run 設定テーブルは共有ヘルパ `socsim_tools` に委譲する (出力はバイト等価)．
 本論文は非 LLM のため run_metadata ブロックは無い．sweep 設定テーブル (複合行 p_bridge
 走査 / θ 候補連結) と `--json` の `kind` フィールドは granovetter 固有なので本モジュールに残す．
 """
@@ -21,6 +27,7 @@ import json
 import sys
 from pathlib import Path
 
+from runvault.read import config_parameters, load_run_meta, runvault_path
 from socsim_tools.io import load_config, resolve_results_dir
 from socsim_tools.settings import render_run_config
 
@@ -39,9 +46,9 @@ FIELD_LABELS = {
     "theta": "閾値 θ             ",
     "remove": "除去対象 (remove)  ",
     "n_seeds": "シード数 n_seeds   ",
+    "runs": "試行数 runs        ",
     "max_iterations": "最大反復           ",
     "seed": "乱数シード基点     ",
-    "output_dir": "出力先             ",
 }
 
 
@@ -79,8 +86,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--results-dir", "--results_dir",
-        default="results/latest",
-        help="実行結果ディレクトリ (default: results/latest)",
+        default=None,
+        help="run ディレクトリ (省略時は runvault が返す直近の完了 run)",
+    )
+    parser.add_argument(
+        "--results-root", "--results_root",
+        default="results",
+        help="結果ルート (default: results)",
+    )
+    parser.add_argument(
+        "--experiment",
+        default="granovetter",
+        help="runvault 上の実験名 (default: granovetter)",
+    )
+    parser.add_argument(
+        "--subcommand",
+        default="run",
+        help="対象サブコマンド: run / ablation / sweep / reproduce (default: run)",
     )
     parser.add_argument(
         "--json",
@@ -89,24 +111,45 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    results_dir = resolve_results_dir(args.results_dir)
+    if args.results_dir is None:
+        # sweep 親は子と subcommand が違うので standalone は要らない．
+        standalone = args.subcommand != "sweep"
+        try:
+            results_dir = Path(
+                runvault_path(
+                    args.experiment, args.results_root,
+                    subcommand=args.subcommand, standalone=standalone,
+                )
+            )
+        except SystemExit as exc:
+            print(f"エラー: {exc}", file=sys.stderr)
+            return 1
+    else:
+        results_dir = resolve_results_dir(args.results_dir)
     if not results_dir.exists():
         print(f"エラー: ディレクトリが存在しません: {results_dir}", file=sys.stderr)
         return 1
 
-    try:
-        cfg, cfg_path = load_config(results_dir)
-    except FileNotFoundError as exc:
-        print(f"エラー: {exc}", file=sys.stderr)
-        return 1
-    kind = "run" if cfg_path.name == "config.json" else "sweep"
+    meta = load_run_meta(results_dir, required=False)
+    if meta is not None:
+        cfg = config_parameters(results_dir)
+        cfg_path = results_dir / "config.json"
+        subcommand = str(meta["subcommand"])
+    else:
+        # runvault 以前のフラットな出力 (config.json / sweep_config.json)．
+        try:
+            cfg, cfg_path = load_config(results_dir)
+        except FileNotFoundError as exc:
+            print(f"エラー: {exc}", file=sys.stderr)
+            return 1
+        subcommand = str(cfg.get("command", "run")) if cfg_path.name == "config.json" else "sweep"
+    kind = "sweep" if subcommand == "sweep" else "run"
 
     if args.json:
         payload = {"source": str(cfg_path), "kind": kind, "config": cfg}
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     elif kind == "run":
-        title = f"実行設定 ({cfg.get('command', 'run')})"
-        print(render_run_config(cfg, cfg_path, FIELD_LABELS, title=title))
+        print(render_run_config(cfg, cfg_path, FIELD_LABELS, title=f"実行設定 ({subcommand})"))
     else:
         print(render_sweep_config(cfg, cfg_path))
     return 0

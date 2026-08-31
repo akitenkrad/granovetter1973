@@ -4,19 +4,25 @@
 //! `ablation`  : 弱紐帯 / 強紐帯 / ランダム辺を除去して到達範囲の差を計測する．
 //! `sweep`     : パラメータ (p_bridge / theta) を走査して到達割合等を集計する．
 //! `reproduce` : 論文 (1973/1978) の主要な定量的主張を一括再現し，観測値 vs
-//!               期待値の PASS/off 判定付きサマリ + CSV を書き出す．
+//!               期待値の PASS/off 判定付きサマリを書き出す．
+//!
+//! 出力の置き場と同一性は runvault が持つ．タイムスタンプ付きディレクトリも
+//! `latest` シンボリックリンクもこちらでは作らず，`Run::start` が決めた run
+//! ディレクトリへ書く．試行ごとの指標は `events.jsonl` の `terminal` 行に，
+//! 試行平均は `metrics.csv` に入る (理由は `record` モジュール)．
 
 use clap::{Parser, Subcommand};
-use socsim_results::{ensure_dir, refresh_latest_symlink, timestamp, write_csv, write_json};
+use runvault::{Lineage, Run, RunOptions};
+use serde::Serialize;
 
 use granovetter_ties::config::{
     parse_diffusion, parse_remove, Config, DiffusionModel, RemovePolicy,
 };
 use granovetter_ties::metrics::{reach_fraction, Metrics};
+use granovetter_ties::record::{self, DOMAIN, EXPERIMENT, REPO_ID};
 use granovetter_ties::reproduce::{run_reproduce, ReproduceOptions};
 use granovetter_ties::simulation::{
-    apply_ablation, ensure_output_dir, init_world, run, run_diffusion, save_edges, save_metrics,
-    save_nodes,
+    apply_ablation, ensure_output_dir, init_world, run, run_diffusion, save_edges, save_nodes,
 };
 
 // ---------------------------------------------------------------------------
@@ -53,7 +59,7 @@ struct ReproduceArgs {
     /// 簡略化モード (クラスタ規模・試行数・θ 解像度を縮小; 動作確認用)．
     #[arg(long, default_value_t = false)]
     quick: bool,
-    /// 結果出力ルートディレクトリ (この下に reproduce_<ts>/ を作る)．
+    /// 結果出力ルート (この下に <実験名>/<run_slug>/ が作られる)．
     #[arg(long, default_value = "results")]
     output_dir: String,
 }
@@ -96,7 +102,7 @@ struct RunArgs {
     /// 乱数シード基点 (省略時はランダム)．
     #[arg(long)]
     seed: Option<u64>,
-    /// 結果出力ディレクトリ．
+    /// 結果出力ルート (この下に <実験名>/<run_slug>/ が作られる)．
     #[arg(long, default_value = "results")]
     output_dir: String,
 }
@@ -142,7 +148,7 @@ struct AblationArgs {
     /// 乱数シード基点．
     #[arg(long, default_value_t = 42)]
     seed: u64,
-    /// 結果出力ディレクトリ．
+    /// 結果出力ルート (この下に <実験名>/<run_slug>/ が作られる)．
     #[arg(long, default_value = "results")]
     output_dir: String,
 }
@@ -188,7 +194,7 @@ struct SweepArgs {
     /// 乱数シード基点．
     #[arg(long, default_value_t = 42)]
     seed: u64,
-    /// 結果出力ディレクトリ．
+    /// 結果出力ルート (この下に <実験名>/<run_slug>/ が作られる)．
     #[arg(long, default_value = "results")]
     output_dir: String,
 }
@@ -228,10 +234,13 @@ fn run_seed(root: u64, run_idx: usize) -> u64 {
 
 fn cmd_run(args: RunArgs) {
     let diffusion = parse_diffusion(&args.diffusion).unwrap_or_else(|e| panic!("{}", e));
-    let timestamp = timestamp();
-    let output_dir = format!("{}/{}", args.output_dir, timestamp);
 
-    let cfg = Config {
+    // シードを実体化してから記録する．--seed 省略時にシミュレーション側で
+    // rand::random に落とすと，実際に使われたシードがどこにも残らない．
+    let root = args.seed.unwrap_or_else(rand::random::<u64>);
+
+    // 出力先は Run::start が run ディレクトリを決めた後に確定する．
+    let mut cfg = Config {
         clusters: args.clusters,
         cluster_size: args.cluster_size,
         p_strong: args.p_strong,
@@ -243,12 +252,27 @@ fn cmd_run(args: RunArgs) {
         remove: RemovePolicy::None,
         n_seeds: args.n_seeds,
         max_iterations: args.max_iterations,
-        seed: args.seed,
-        output_dir: output_dir.clone(),
+        seed: Some(root),
+        output_dir: String::new(),
     };
 
+    let parameters = cfg.to_parameters(args.runs, root);
+    let mut rv = Run::start(
+        RunOptions::new(EXPERIMENT, "run")
+            .repo_id(REPO_ID)
+            .domain(DOMAIN)
+            .results_root(&args.output_dir)
+            .parameters(&parameters)
+            .expect("runvault: parameters の組み立てに失敗")
+            .seed_pointers(["/seed"])
+            .master_seed(root)
+            .replication(record::replication()),
+    )
+    .expect("runvault: run の開始に失敗");
+
+    // 網とノードの一覧は run が走っている間に書いたものなので artifacts/ の下へ．
+    cfg.output_dir = rv.dir().join("artifacts").to_string_lossy().into_owned();
     ensure_output_dir(&cfg.output_dir);
-    let root = cfg.seed.unwrap_or_else(rand::random);
 
     println!("=== Granovetter 弱紐帯ブリッジ網 + 情報拡散 再現実験 ===");
     println!(
@@ -268,7 +292,7 @@ fn cmd_run(args: RunArgs) {
         args.runs,
     );
     println!("乱数シード基点: {}", root);
-    println!("出力先: {}", cfg.output_dir);
+    println!("出力先: {}", rv.dir().display());
     println!("-------------------------------------------------------");
 
     let mut metrics: Vec<Metrics> = Vec::with_capacity(args.runs);
@@ -288,19 +312,21 @@ fn cmd_run(args: RunArgs) {
     }
 
     let world = first_world.expect("少なくとも 1 試行は実行されるはず");
-    save_metrics(&metrics, &cfg.output_dir);
     save_edges(&world, &cfg.output_dir);
     save_nodes(&world, &cfg.output_dir);
 
-    // config.json (pretty-print JSON; socsim_results::write_json に委譲)．
-    {
-        let path = format!("{}/config.json", cfg.output_dir);
-        write_json(&cfg.to_run_config_json("run"), &path).expect("config.json の書き込みに失敗");
+    for m in &metrics {
+        record::log_trial(
+            &mut rv,
+            &format!("trial-{}", m.run),
+            m,
+            cfg.max_iterations,
+            None,
+        );
     }
+    record::log_trial_summary(&mut rv, &metrics);
 
-    let _ = refresh_latest_symlink(&args.output_dir, &timestamp);
-
-    // 試行平均を表示．
+    // 試行平均を表示 (metrics.csv に入る値と同じもの)．
     let avg = |f: &dyn Fn(&Metrics) -> f64| -> f64 {
         metrics.iter().map(f).sum::<f64>() / metrics.len() as f64
     };
@@ -323,10 +349,13 @@ fn cmd_run(args: RunArgs) {
         avg(&|m| m.reach_strong_only as f64),
         avg(&|m| m.reach_weak_only as f64),
     );
-    println!("メトリクス → {}/metrics.csv", cfg.output_dir);
-    println!("辺リスト   → {}/edges.csv", cfg.output_dir);
-    println!("ノード     → {}/nodes.csv", cfg.output_dir);
-    println!("設定       → {}/config.json", cfg.output_dir);
+
+    let dir = rv.finish().expect("runvault: run の完了に失敗");
+    println!("試行ごとの指標 → {}/events.jsonl", dir.display());
+    println!("試行平均       → {}/metrics.csv", dir.display());
+    println!("辺リスト       → {}/artifacts/edges.csv", dir.display());
+    println!("ノード         → {}/artifacts/nodes.csv", dir.display());
+    println!("設定           → {}/config.json", dir.display());
 }
 
 // ---------------------------------------------------------------------------
@@ -336,8 +365,6 @@ fn cmd_run(args: RunArgs) {
 fn cmd_ablation(args: AblationArgs) {
     let diffusion = parse_diffusion(&args.diffusion).unwrap_or_else(|e| panic!("{}", e));
     let remove = parse_remove(&args.remove).unwrap_or_else(|e| panic!("{}", e));
-    let timestamp = timestamp();
-    let output_dir = format!("{}/{}", args.output_dir, timestamp);
 
     let mut cfg = Config {
         clusters: args.clusters,
@@ -352,8 +379,24 @@ fn cmd_ablation(args: AblationArgs) {
         n_seeds: args.n_seeds,
         max_iterations: args.max_iterations,
         seed: Some(args.seed),
-        output_dir: output_dir.clone(),
+        output_dir: String::new(),
     };
+
+    let parameters = cfg.to_parameters(args.runs, args.seed);
+    let mut rv = Run::start(
+        RunOptions::new(EXPERIMENT, "ablation")
+            .repo_id(REPO_ID)
+            .domain(DOMAIN)
+            .results_root(&args.output_dir)
+            .parameters(&parameters)
+            .expect("runvault: parameters の組み立てに失敗")
+            .seed_pointers(["/seed"])
+            .master_seed(args.seed)
+            .replication(record::replication()),
+    )
+    .expect("runvault: run の開始に失敗");
+
+    cfg.output_dir = rv.dir().join("artifacts").to_string_lossy().into_owned();
     ensure_output_dir(&cfg.output_dir);
 
     println!("=== Granovetter アブレーション (辺除去) 実験 ===");
@@ -367,11 +410,13 @@ fn cmd_ablation(args: AblationArgs) {
         args.runs,
     );
     println!("乱数シード基点: {}", args.seed);
-    println!("出力先: {}", cfg.output_dir);
+    println!("出力先: {}", rv.dir().display());
     println!("------------------------------------------------");
 
     let mut metrics: Vec<Metrics> = Vec::with_capacity(args.runs);
-    let mut sum_baseline = 0.0_f64;
+    // 試行ごとのベースライン到達割合 (除去前)．旧実装は総和しか持たなかったが，
+    // 各試行の terminal 行に載せるので試行ごとに取っておく．
+    let mut baseline_reaches: Vec<f64> = Vec::with_capacity(args.runs);
     let mut sum_ablated = 0.0_f64;
     let mut ablated_world = None;
 
@@ -381,7 +426,7 @@ fn cmd_ablation(args: AblationArgs) {
         // ベースライン (除去なし) の到達割合．
         let baseline_world = init_world(&cfg, seed);
         let baseline = run_diffusion(baseline_world, &cfg, seed);
-        sum_baseline += reach_fraction(&baseline.world);
+        baseline_reaches.push(reach_fraction(&baseline.world));
 
         // アブレーション後の到達割合．
         let mut world = init_world(&cfg, seed);
@@ -401,22 +446,25 @@ fn cmd_ablation(args: AblationArgs) {
     }
 
     let world = ablated_world.expect("少なくとも 1 試行は実行されるはず");
-    save_metrics(&metrics, &cfg.output_dir);
     save_edges(&world, &cfg.output_dir);
     save_nodes(&world, &cfg.output_dir);
 
-    cfg.output_dir = output_dir.clone();
-    {
-        let path = format!("{}/config.json", cfg.output_dir);
-        write_json(&cfg.to_run_config_json("ablation"), &path)
-            .expect("config.json の書き込みに失敗");
+    for (m, &baseline_reach) in metrics.iter().zip(&baseline_reaches) {
+        record::log_trial(
+            &mut rv,
+            &format!("trial-{}", m.run),
+            m,
+            cfg.max_iterations,
+            Some(baseline_reach),
+        );
     }
-
-    let _ = refresh_latest_symlink(&args.output_dir, &timestamp);
+    record::log_trial_summary(&mut rv, &metrics);
 
     let n = args.runs as f64;
-    let baseline_reach = sum_baseline / n;
+    let baseline_reach = baseline_reaches.iter().sum::<f64>() / n;
     let ablated_reach = sum_ablated / n;
+    record::log_ablation_comparison(&mut rv, baseline_reach, ablated_reach);
+
     println!("------------------------------------------------");
     println!("試行平均 ({} 試行):", args.runs);
     println!("  ベースライン到達割合 (除去なし): {:.4}", baseline_reach);
@@ -425,33 +473,20 @@ fn cmd_ablation(args: AblationArgs) {
         "  到達割合の差分 (Δreach): {:.4}",
         ablated_reach - baseline_reach
     );
-    println!("メトリクス → {}/metrics.csv", cfg.output_dir);
-    println!("設定       → {}/config.json", cfg.output_dir);
+
+    let dir = rv.finish().expect("runvault: run の完了に失敗");
+    println!("試行ごとの指標 → {}/events.jsonl", dir.display());
+    println!("試行平均・比較 → {}/metrics.csv", dir.display());
+    println!("設定           → {}/config.json", dir.display());
 }
 
 // ---------------------------------------------------------------------------
 // sweep
 // ---------------------------------------------------------------------------
 
-/// `sweep_summary.csv` の 1 行．
-#[derive(serde::Serialize)]
-struct SweepRow {
-    p_bridge: f64,
-    theta: f64,
-    run: usize,
-    seed: u64,
-    reach_fraction: f64,
-    frac_weak_bridges: f64,
-    forbidden_triad_rate: f64,
-    avg_path_length: f64,
-    largest_component_fraction: f64,
-    cascade_rounds: usize,
-}
-
-/// `sweep_config.json` の構造体．
-#[derive(serde::Serialize)]
-struct SweepConfigJson {
-    command: &'static str,
+/// sweep 親 run の `parameters` — 走査グリッドの定義そのもの．
+#[derive(Serialize)]
+struct SweepParameters {
     p_bridge_min: f64,
     p_bridge_max: f64,
     p_bridge_step: f64,
@@ -488,12 +523,46 @@ fn cmd_sweep(args: SweepArgs) {
     };
 
     let p_bridges = float_range(args.p_bridge_min, args.p_bridge_max, args.p_bridge_step);
-
-    let timestamp = timestamp();
-    let sweep_dir = format!("{}/{}_sweep", args.output_dir, timestamp);
-    ensure_dir(&sweep_dir).expect("sweep ディレクトリの作成に失敗");
-
     let n_total = p_bridges.len() * thetas.len() * args.runs;
+
+    let sweep_parameters = SweepParameters {
+        p_bridge_min: args.p_bridge_min,
+        p_bridge_max: args.p_bridge_max,
+        p_bridge_step: args.p_bridge_step,
+        theta_values: thetas.clone(),
+        clusters: args.clusters,
+        cluster_size: args.cluster_size,
+        p_strong: args.p_strong,
+        diffusion: diffusion.label(),
+        beta: args.beta,
+        n_seeds: args.n_seeds,
+        runs: args.runs,
+        max_iterations: args.max_iterations,
+        seed: args.seed,
+    };
+
+    // 親 run: 走査グリッドの定義そのものを parameters に持ち，指標は持たない．
+    // 親は 1 本のシミュレーションではないので master_seed を名乗らず，base seed は
+    // /parameters.seed と seed_pointers 経由で execution_hash に残る．sweep_id は
+    // runvault が親の run_slug で埋める．
+    let parent = Run::start(
+        RunOptions::new(EXPERIMENT, "sweep")
+            .repo_id(REPO_ID)
+            .domain(DOMAIN)
+            .results_root(&args.output_dir)
+            .parameters(&sweep_parameters)
+            .expect("runvault: sweep の parameters の組み立てに失敗")
+            .seed_pointers(["/seed"])
+            .sweep_parent()
+            .replication(record::replication()),
+    )
+    .expect("runvault: sweep 親 run の開始に失敗");
+
+    let sweep_id = parent
+        .sweep_id()
+        .expect("runvault: sweep 親に sweep_id がありません")
+        .to_string();
+    let parent_run_uid = parent.run_uid().to_string();
 
     println!("=== Granovetter パラメータスイープ ===");
     println!(
@@ -507,50 +576,72 @@ fn cmd_sweep(args: SweepArgs) {
         args.runs,
         n_total,
     );
-    println!("出力先: {}", sweep_dir);
+    println!("出力先: {}", parent.dir().display());
     println!("-------------------------------------");
 
-    let mut rows: Vec<SweepRow> = Vec::with_capacity(n_total);
     let mut done = 0usize;
 
     for &theta in &thetas {
         for &p_bridge in &p_bridges {
+            let cfg = Config {
+                clusters: args.clusters,
+                cluster_size: args.cluster_size,
+                p_strong: args.p_strong,
+                p_bridge,
+                p_weak_intra: 0.0,
+                diffusion,
+                beta: args.beta,
+                theta,
+                remove: RemovePolicy::None,
+                n_seeds: args.n_seeds,
+                max_iterations: args.max_iterations,
+                seed: Some(args.seed),
+                output_dir: String::new(),
+            };
+
+            // 子は «その (θ, p_bridge) の試行群» そのもの．parameters は手で回した
+            // `run` と同じ形なので，同じ条件なら config_hash が一致する．
+            // 同じ条件の繰り返しは無いので replicate_index は 0．
+            let mut child = Run::start(
+                RunOptions::new(EXPERIMENT, "sweep-point")
+                    .repo_id(REPO_ID)
+                    .domain(DOMAIN)
+                    .results_root(&args.output_dir)
+                    .parameters(&cfg.to_parameters(args.runs, args.seed))
+                    .expect("runvault: 子 run の parameters の組み立てに失敗")
+                    .seed_pointers(["/seed"])
+                    .master_seed(args.seed)
+                    .replicate_index(0)
+                    .lineage(Lineage {
+                        sweep_id: Some(sweep_id.clone()),
+                        parent_run_uid: Some(parent_run_uid.clone()),
+                        ..Default::default()
+                    })
+                    .replication(record::replication()),
+            )
+            .expect("runvault: 子 run の開始に失敗");
+
+            let mut metrics: Vec<Metrics> = Vec::with_capacity(args.runs);
             for run_idx in 0..args.runs {
                 let seed = socsim_core::derive_seed(
                     args.seed,
                     &[theta.to_bits(), p_bridge.to_bits(), run_idx as u64],
                 );
-                let cfg = Config {
-                    clusters: args.clusters,
-                    cluster_size: args.cluster_size,
-                    p_strong: args.p_strong,
-                    p_bridge,
-                    p_weak_intra: 0.0,
-                    diffusion,
-                    beta: args.beta,
-                    theta,
-                    remove: RemovePolicy::None,
-                    n_seeds: args.n_seeds,
-                    max_iterations: args.max_iterations,
-                    seed: Some(seed),
-                    output_dir: sweep_dir.clone(),
-                };
                 let result = run(&cfg, seed);
                 let m = Metrics::compute(&result.world, run_idx, seed, result.cascade_rounds);
-                rows.push(SweepRow {
-                    p_bridge,
-                    theta,
-                    run: run_idx,
-                    seed,
-                    reach_fraction: m.reach_fraction,
-                    frac_weak_bridges: m.frac_weak_bridges,
-                    forbidden_triad_rate: m.forbidden_triad_rate,
-                    avg_path_length: m.avg_path_length,
-                    largest_component_fraction: m.largest_component_fraction,
-                    cascade_rounds: m.cascade_rounds,
-                });
+                record::log_trial(
+                    &mut child,
+                    &format!("trial-{run_idx}"),
+                    &m,
+                    args.max_iterations,
+                    None,
+                );
+                metrics.push(m);
                 done += 1;
             }
+            record::log_trial_summary(&mut child, &metrics);
+            child.finish().expect("runvault: 子 run の完了に失敗");
+
             println!(
                 "[{}/{}] θ={:.3} p_bridge={:.3} 完了 ({} 試行)",
                 done, n_total, theta, p_bridge, args.runs,
@@ -558,39 +649,13 @@ fn cmd_sweep(args: SweepArgs) {
         }
     }
 
-    // sweep_summary.csv (各行を serialize; socsim_results::write_csv に委譲)．
-    {
-        let path = format!("{}/sweep_summary.csv", sweep_dir);
-        write_csv(&rows, &path).expect("sweep_summary.csv の書き込みに失敗");
-    }
-
-    {
-        let config_json = SweepConfigJson {
-            command: "sweep",
-            p_bridge_min: args.p_bridge_min,
-            p_bridge_max: args.p_bridge_max,
-            p_bridge_step: args.p_bridge_step,
-            theta_values: thetas.clone(),
-            clusters: args.clusters,
-            cluster_size: args.cluster_size,
-            p_strong: args.p_strong,
-            diffusion: diffusion.label(),
-            beta: args.beta,
-            n_seeds: args.n_seeds,
-            runs: args.runs,
-            max_iterations: args.max_iterations,
-            seed: args.seed,
-        };
-        let path = format!("{}/sweep_config.json", sweep_dir);
-        write_json(&config_json, &path).expect("sweep_config.json の書き込みに失敗");
-    }
-
-    let _ = refresh_latest_symlink(&args.output_dir, &format!("{}_sweep", timestamp));
-
+    let dir = parent
+        .finish()
+        .expect("runvault: sweep 親 run の完了に失敗");
     println!("-------------------------------------");
     println!("スイープ完了: {} 実行", n_total);
-    println!("サマリ → {}/sweep_summary.csv", sweep_dir);
-    println!("設定   → {}/sweep_config.json", sweep_dir);
+    println!("スイープ定義 → {}/config.json", dir.display());
+    println!("各条件の試行は子 run (subcommand=sweep-point) の events.jsonl にあります");
 }
 
 /// SI モデルで θ を使わないときのプレースホルダ値．

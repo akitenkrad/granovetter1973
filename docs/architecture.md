@@ -15,10 +15,11 @@ granovetter1973/
 │   ├── src/
 │   │   ├── main.rs            # CLI (run / ablation / sweep / reproduce)
 │   │   ├── lib.rs             # module re-exports for the binary + integration tests
-│   │   ├── config.rs          # Config + config.json serialization, DiffusionModel / RemovePolicy
+│   │   ├── config.rs          # Config + the experimental condition (runvault parameters), DiffusionModel / RemovePolicy
 │   │   ├── world.rs           # socsim WorldState impl (WeakTieWorld); TieStrength edge weight
 │   │   ├── network.rs         # clustered weak-tie bridging network generator
 │   │   ├── metrics.rs         # bridges / forbidden triad / reach / path length / reach-by-strength
+│   │   ├── record.rs          # how a run is recorded to runvault (research metadata, events, aggregates)
 │   │   ├── reproduce.rs       # one-shot reproduction of the headline claims (observed vs expected)
 │   │   └── simulation.rs      # init_world + ablation + run driver (SimulationBuilder wiring)
 │   └── tests/
@@ -95,7 +96,7 @@ For a given seed the whole pipeline (network generation, ablation, diffusion) is
 
 ## Paper reproduction (`reproduce`)
 
-`simulation/src/reproduce.rs` drives a one-shot reproduction of the paper's headline quantitative claims directly through the library API (no subprocess): **Claim A** (the weak-tie bridge effect — removing the weak ties, which are all of the local bridges, collapses reach to `1/K`, while removing the same number of random edges does not) and **Claim B** (Granovetter 1978 threshold-cascade tipping — a small upward shift in the threshold jumps the final cascade size from global to local). It averages reach over seeded trials, writes `claim_a_ablation.csv` / `claim_b_threshold.csv` and a `reproduce_summary.json` recording each claim's parameters and the observed-vs-expected comparison with a `PASS`/`OFF` verdict. The Python `granovetter-tools reproduce` calls this subcommand and renders the comparison figures. See the [CLI](cli.md) and [Visualization](visualization.md) docs.
+`simulation/src/reproduce.rs` drives a one-shot reproduction of the paper's headline quantitative claims directly through the library API (no subprocess): **Claim A** (the weak-tie bridge effect — removing the weak ties, which are all of the local bridges, collapses reach to `1/K`, while removing the same number of random edges does not) and **Claim B** (Granovetter 1978 threshold-cascade tipping — a small upward shift in the threshold jumps the final cascade size from global to local). It averages reach over seeded trials and writes the per-removal-policy and per-`θ` observations to `events.jsonl`, both claims' headline numbers to `metrics.csv`, and each claim's parameters plus the observed-vs-expected comparison with a `PASS`/`OFF` verdict to `artifacts/reproduce_summary.json`. The Python `granovetter-tools reproduce` calls this subcommand and renders the comparison figures. See the [CLI](cli.md) and [Visualization](visualization.md) docs.
 
 ## References
 
