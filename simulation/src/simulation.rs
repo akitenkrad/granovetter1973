@@ -42,8 +42,16 @@ pub struct SimulationResult {
 /// シードは ID 0 を含む先頭 `n_seeds` 個 (クラスタ 0 から拡散開始; 弱紐帯除去の効果を
 /// クラスタ間到達の崩壊として観察しやすくするため固定する)．
 pub fn init_world(cfg: &Config, root: u64) -> WeakTieWorld {
+    init_world_observed(cfg, root, |_| {})
+}
+
+/// The same, calling `on_cluster` once for every cluster wired.
+///
+/// See [`network::generate_observed`] for why the cluster is the unit.
+pub fn init_world_observed(cfg: &Config, root: u64, on_cluster: impl FnMut(usize)) -> WeakTieWorld {
     let mut init_rng = SimRng::from_seed(derive_seed(root, &[RNG_WORLD_INIT]));
-    let GeneratedNetwork { net, cluster_of } = network::generate(cfg, &mut init_rng);
+    let GeneratedNetwork { net, cluster_of } =
+        network::generate_observed(cfg, &mut init_rng, on_cluster);
 
     let n = cfg.n_agents();
     let n_seeds = cfg.n_seeds.clamp(1, n.max(1));
@@ -142,7 +150,15 @@ pub fn run_diffusion(world: WeakTieWorld, cfg: &Config, root: u64) -> Simulation
 
 /// 設定から 1 試行を最初から最後まで実行する (init → ablation → diffusion)．
 pub fn run(cfg: &Config, root: u64) -> SimulationResult {
-    let mut world = init_world(cfg, root);
+    run_observed(cfg, root, |_| {})
+}
+
+/// The same, calling `on_cluster` once for every cluster wired.
+///
+/// See [`network::generate_observed`] for why the cluster is the unit and why
+/// the diffusion that follows is not counted: it is not where the time goes.
+pub fn run_observed(cfg: &Config, root: u64, on_cluster: impl FnMut(usize)) -> SimulationResult {
+    let mut world = init_world_observed(cfg, root, on_cluster);
     if cfg.remove != RemovePolicy::None {
         apply_ablation(&mut world, cfg, root);
     }

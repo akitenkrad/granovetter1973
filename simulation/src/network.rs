@@ -37,6 +37,26 @@ pub struct GeneratedNetwork {
 /// 強紐帯はクラスタ内 ER (確率 `p_strong`)，弱紐帯はクラスタ対間の橋渡し
 /// (確率 `p_bridge`) と少数のクラスタ内弱紐帯 (確率 `p_weak_intra`)．
 pub fn generate(cfg: &Config, rng: &mut SimRng) -> GeneratedNetwork {
+    generate_observed(cfg, rng, |_| {})
+}
+
+/// The same, calling `on_cluster` once for every cluster wired.
+///
+/// The callback is where a caller counts its progress. A cluster is the unit
+/// because it is the unit the cost is in: wiring one is quadratic in its size
+/// and then [`close_triangles`] iterates to a fixed point over the same
+/// members, and everything else a trial does is small beside it. Measured at
+/// `--clusters 10`, one trial takes 1.11s at `--cluster-size 100` and 102s at
+/// `--cluster-size 400`, while `--beta` — which decides how many diffusion
+/// rounds follow — moves the same trial only from 93.06s to 97.03s.
+///
+/// It is given the cluster index rather than nothing so a caller can report
+/// against the grid rather than against its own tally.
+pub fn generate_observed(
+    cfg: &Config,
+    rng: &mut SimRng,
+    mut on_cluster: impl FnMut(usize),
+) -> GeneratedNetwork {
     let k = cfg.clusters;
     let size = cfg.cluster_size;
     let n = k * size;
@@ -74,7 +94,7 @@ pub fn generate(cfg: &Config, rng: &mut SimRng) -> GeneratedNetwork {
     //    `forbidden_triad_rate` で計測する)．
     let p_strong = cfg.p_strong.clamp(0.0, 1.0);
     let p_weak_intra = cfg.p_weak_intra.clamp(0.0, 1.0);
-    for cluster_members in members.iter().take(k) {
+    for (cluster_idx, cluster_members) in members.iter().take(k).enumerate() {
         let m = cluster_members.clone();
         let sz = m.len();
         // (a) 強紐帯リングで連結を保証 (size>=3 なら閉路, size==2 なら 1 辺)．
@@ -105,6 +125,7 @@ pub fn generate(cfg: &Config, rng: &mut SimRng) -> GeneratedNetwork {
         if sz >= 3 {
             close_triangles(&mut net, &m);
         }
+        on_cluster(cluster_idx);
     }
 
     // 2. クラスタ間弱紐帯橋渡し (クラスタ対ごとに確率 p_bridge で 1 本)．

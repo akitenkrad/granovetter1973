@@ -22,7 +22,8 @@ use granovetter_ties::metrics::{reach_fraction, Metrics};
 use granovetter_ties::record::{self, DOMAIN, EXPERIMENT, REPO_ID};
 use granovetter_ties::reproduce::{run_reproduce, ReproduceOptions};
 use granovetter_ties::simulation::{
-    apply_ablation, ensure_output_dir, init_world, run, run_diffusion, save_edges, save_nodes,
+    apply_ablation, ensure_output_dir, init_world_observed, run_diffusion, run_observed,
+    save_edges, save_nodes,
 };
 
 // ---------------------------------------------------------------------------
@@ -295,11 +296,18 @@ fn cmd_run(args: RunArgs) {
     println!("出力先: {}", rv.dir().display());
     println!("-------------------------------------------------------");
 
+    // 進捗の 1 単位は «クラスタ 1 つを配線し終えたこと»．費用がそこにあるからで，
+    // 1 クラスタの配線はサイズに対して二次で，さらに close_triangles が同じ
+    // メンバ上を不動点まで回る．試行を単位にすると `--runs 1` では 1 回しか
+    // 数えられないが，実測では `--cluster-size 400` の 1 試行だけで 102s かかる．
+    // 逆に拡散は費用ではない — `--beta` を 1.0 / 0.5 / 0.05 と変えても同じ 1 試行は
+    // 97.03s / 93.77s / 93.06s とほぼ動かない．
+    let mut stage = rv.stage("clusters", args.runs * cfg.clusters);
     let mut metrics: Vec<Metrics> = Vec::with_capacity(args.runs);
     let mut first_world = None;
     for run_idx in 0..args.runs {
         let seed = run_seed(root, run_idx);
-        let result = run(&cfg, seed);
+        let result = run_observed(&cfg, seed, |_| stage.tick());
         metrics.push(Metrics::compute(
             &result.world,
             run_idx,
@@ -310,6 +318,10 @@ fn cmd_run(args: RunArgs) {
             first_world = Some(result.world);
         }
     }
+
+    // manifest.csv は finish() で封をされる．その後に 1 行足せば，manifest が
+    // 食い違うダイジェストを持つことになる．
+    stage.close();
 
     let world = first_world.expect("少なくとも 1 試行は実行されるはず");
     save_edges(&world, &cfg.output_dir);
@@ -420,16 +432,20 @@ fn cmd_ablation(args: AblationArgs) {
     let mut sum_ablated = 0.0_f64;
     let mut ablated_world = None;
 
+    // 単位は run と同じ «クラスタ 1 つの配線»．1 試行はベースラインと除去後で
+    // 網を 2 回作るので，1 試行あたり 2 * clusters 個数える．
+    let mut stage = rv.stage("clusters", args.runs * 2 * cfg.clusters);
+
     for run_idx in 0..args.runs {
         let seed = run_seed(args.seed, run_idx);
 
         // ベースライン (除去なし) の到達割合．
-        let baseline_world = init_world(&cfg, seed);
+        let baseline_world = init_world_observed(&cfg, seed, |_| stage.tick());
         let baseline = run_diffusion(baseline_world, &cfg, seed);
         baseline_reaches.push(reach_fraction(&baseline.world));
 
         // アブレーション後の到達割合．
-        let mut world = init_world(&cfg, seed);
+        let mut world = init_world_observed(&cfg, seed, |_| stage.tick());
         apply_ablation(&mut world, &cfg, seed);
         let ablated = run_diffusion(world, &cfg, seed);
         sum_ablated += reach_fraction(&ablated.world);
@@ -444,6 +460,8 @@ fn cmd_ablation(args: AblationArgs) {
             ablated_world = Some(ablated.world);
         }
     }
+
+    stage.close();
 
     let world = ablated_world.expect("少なくとも 1 試行は実行されるはず");
     save_edges(&world, &cfg.output_dir);
@@ -579,6 +597,13 @@ fn cmd_sweep(args: SweepArgs) {
     println!("出力先: {}", parent.dir().display());
     println!("-------------------------------------");
 
+    // グリッド全体で stage を 1 つ．条件ごとに開け直すと小さな 100% が並ぶだけで，
+    // スイープ全体のどこにいるかは分からない．単位は run と同じ «クラスタ 1 つの
+    // 配線» で，掃引する θ と p_bridge はどちらもクラスタ数もクラスタ規模も
+    // 変えない (p_bridge はクラスタ «間» の橋を張る確率で，費用の要る
+    // クラスタ内配線には効かない) ので，重みではなく数える．
+    let mut stage = parent.stage("clusters", n_total * args.clusters);
+
     let mut done = 0usize;
 
     for &theta in &thetas {
@@ -627,7 +652,7 @@ fn cmd_sweep(args: SweepArgs) {
                     args.seed,
                     &[theta.to_bits(), p_bridge.to_bits(), run_idx as u64],
                 );
-                let result = run(&cfg, seed);
+                let result = run_observed(&cfg, seed, |_| stage.tick());
                 let m = Metrics::compute(&result.world, run_idx, seed, result.cascade_rounds);
                 record::log_trial(
                     &mut child,
@@ -648,6 +673,8 @@ fn cmd_sweep(args: SweepArgs) {
             );
         }
     }
+
+    stage.close();
 
     let dir = parent
         .finish()
