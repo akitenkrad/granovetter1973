@@ -171,3 +171,74 @@ meaning   = "相転移の幅 (`theta_high` − `theta_low`)．狭いほど閾値
 unit      = "ratio"
 direction = "none"
 scope     = ["run"]
+
+# --- 条件（parameters）の説明 -----------------------------------------------
+#
+# 鍵は JSON ポインタ．`config.json` の `/parameters` からの相対で指す．
+
+[parameters."/clusters"]
+meaning = "クラスタ（コミュニティ）の数 K"
+unit    = "count"
+
+[parameters."/cluster_size"]
+meaning = "1 クラスタあたりのエージェント数"
+unit    = "count"
+
+[parameters."/n_agents"]
+meaning = "総エージェント数（clusters × cluster_size）"
+unit    = "count"
+
+[parameters."/p_strong"]
+meaning = "クラスタ内に強い紐帯が張られる確率（ER モデル．1.0 で準クリーク）"
+range   = [0.0, 1.0]
+
+[parameters."/p_bridge"]
+meaning = "クラスタ対ごとに弱い紐帯の橋が張られる確率"
+range   = [0.0, 1.0]
+
+[parameters."/p_weak_intra"]
+meaning = "クラスタ内に弱い紐帯を許す確率（連続性の近似．既定 0.0）"
+range   = [0.0, 1.0]
+
+[parameters."/diffusion"]
+meaning = "拡散モデル．`si` は接触過程（informed が隣接を確率 β で informed 化），`threshold` は Granovetter (1978) の閾値カスケード"
+
+[parameters."/beta"]
+meaning = "SI の感染確率 β（diffusion=si のときだけ効く）"
+range   = [0.0, 1.0]
+
+[parameters."/theta"]
+meaning = "カスケードの閾値 θ（diffusion=threshold のときだけ効く）．informed な隣接の割合がこれ以上で active 化する"
+range   = [0.0, 1.0]
+
+[parameters."/remove"]
+meaning = "アブレーションで除去する紐帯．`none` / `weak` / `strong` / `random`（弱紐帯と同数を無作為に除く対照群）"
+
+[parameters."/n_seeds"]
+meaning = "拡散の起点にするノードの数"
+unit    = "count"
+
+[parameters."/max_iterations"]
+meaning = "カスケードのラウンド数の上限"
+unit    = "count"
+
+[parameters."/runs"]
+meaning = "この条件で走らせる独立試行の本数"
+unit    = "count"
+
+[parameters."/seed"]
+meaning = "試行のシードを派生させる基準の乱数種"
+
+# --- sweep 親のグリッド定義 --------------------------------------------------
+
+[parameters."/p_bridge_min"]
+meaning = "sweep が振る橋渡し確率の下端"
+
+[parameters."/p_bridge_max"]
+meaning = "sweep が振る橋渡し確率の上端"
+
+[parameters."/p_bridge_step"]
+meaning = "橋渡し確率の刻み幅"
+
+[parameters."/theta_values"]
+meaning = "sweep が比べる閾値 θ の並び"
