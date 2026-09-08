@@ -1,0 +1,173 @@
+# 指標が何を測っているか (runvault の宣言．rs-runvault docs/metrics.ja.md)．
+#
+# 名前は `simulation/src/record.rs` (試行群の平均・アブレーション) と
+# `simulation/src/reproduce.rs` (論文の 2 つの主張の照合) が書いているものと
+# 一致していなければならない．
+#
+# `direction` は «どちらが良いか»．網の構造量も到達率も模型の記述であって成績では
+# ないので `none` を書く — 「弱い紐帯を切ると到達率が落ちる」は主張であって，
+# 到達率が高いほど良いという話ではない．
+
+# --- 試行群の平均 (scope=run) ----------------------------------------------
+
+[metrics."n_agents"]
+meaning   = "網の頂点数 (エージェント数)"
+unit      = "count"
+direction = "none"
+scope     = ["run"]
+
+[metrics."mean_n_edges"]
+meaning   = "試行群にわたる辺数の平均"
+unit      = "count"
+direction = "none"
+scope     = ["run"]
+
+[metrics."mean_n_local_bridges"]
+meaning   = "試行群にわたる局所橋 (取り除くと両端の距離が 2 を超える辺) の本数の平均"
+unit      = "count"
+direction = "none"
+scope     = ["run"]
+
+[metrics."mean_frac_weak_bridges"]
+meaning   = "局所橋のうち弱い紐帯が占める割合の平均．Granovetter の «橋は弱い紐帯である» に対応する"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."mean_forbidden_triad_rate"]
+meaning   = "禁止された三つ組 (強い紐帯 2 本を共有しながら両端が繋がっていない組) の出現率の平均"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."mean_reach_fraction"]
+meaning   = "情報が到達した頂点の割合の平均 (全紐帯を使ったときの基準値)"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."mean_reach_strong_only"]
+meaning   = "強い紐帯だけを辿ったときの到達頂点数の平均"
+unit      = "count"
+direction = "none"
+scope     = ["run"]
+
+[metrics."mean_reach_weak_only"]
+meaning   = "弱い紐帯だけを辿ったときの到達頂点数の平均"
+unit      = "count"
+direction = "none"
+scope     = ["run"]
+
+[metrics."mean_avg_path_length"]
+meaning   = "試行群にわたる平均経路長の平均"
+unit      = "count"
+direction = "none"
+scope     = ["run"]
+
+[metrics."mean_largest_component_fraction"]
+meaning   = "最大連結成分が全頂点に占める割合の平均"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."mean_cascade_rounds"]
+meaning   = "情報が広がり切るまでに要した伝播ラウンド数の平均"
+unit      = "count"
+direction = "none"
+scope     = ["run"]
+
+# --- アブレーション比較 (scope=run) ----------------------------------------
+
+[metrics."mean_baseline_reach_fraction"]
+meaning   = "紐帯を除去する前の到達率 (アブレーションの基準)"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."mean_ablated_reach_fraction"]
+meaning   = "紐帯を除去した後の到達率"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."mean_delta_reach_fraction"]
+meaning   = "除去による到達率の変化 (除去後 − 除去前)．負に大きいほど，その紐帯が到達に効いていた"
+unit      = "ratio"
+direction = "none"
+range     = [-1.0, 1.0]
+scope     = ["run"]
+
+# --- 論文の主張の照合 (reproduce サブコマンド．scope=run) --------------------
+
+[metrics."baseline_reach"]
+meaning   = "全紐帯を使ったときの到達率 (主張 1 の基準)"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."weak_removed_reach"]
+meaning   = "弱い紐帯を除いたときの到達率．基準より大きく落ちることが «弱い紐帯の強さ» の主張である"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."strong_removed_reach"]
+meaning   = "強い紐帯を除いたときの到達率 (弱い紐帯の除去と比べる対照)"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."random_removed_reach"]
+meaning   = "同数の紐帯を無作為に除いたときの到達率 (もう 1 つの対照)"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."frac_weak_bridges"]
+meaning   = "局所橋のうち弱い紐帯が占める割合 (この run が主張として出す 1 つの値)"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."theta_low"]
+meaning   = "閾値の走査で到達率が低いままの側の端 (相転移の下端)"
+unit      = "ratio"
+direction = "none"
+scope     = ["run"]
+
+[metrics."reach_low"]
+meaning   = "`theta_low` における到達率"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."theta_high"]
+meaning   = "閾値の走査で到達率が高くなった側の端 (相転移の上端)"
+unit      = "ratio"
+direction = "none"
+scope     = ["run"]
+
+[metrics."reach_high"]
+meaning   = "`theta_high` における到達率"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."transition_width"]
+meaning   = "相転移の幅 (`theta_high` − `theta_low`)．狭いほど閾値に対する応答が急である"
+unit      = "ratio"
+direction = "none"
+scope     = ["run"]
