@@ -242,3 +242,34 @@ meaning = "橋渡し確率の刻み幅"
 
 [parameters."/theta_values"]
 meaning = "sweep が比べる閾値 θ の並び"
+
+# --- reproduce の 2 主張 ------------------------------------------------------
+#
+# `reproduce` は Claim A（弱紐帯ブリッジ効果）と Claim B（閾値カスケードの
+# ティッピング）を 1 本の run で走らせるので，どちらの主張の設定かを名前の
+# 後ろの `_a` / `_b` で分けている．同名の設定を 2 つ持てないための綴りであって，
+# 意味は `_a` / `_b` の付かないものと同じである．
+
+[parameters."/p_bridge_a"]
+meaning = "Claim A（弱紐帯ブリッジ効果）を測るときの橋渡し確率"
+
+[parameters."/runs_a"]
+meaning = "Claim A をこの条件で走らせる独立試行の本数"
+unit    = "count"
+
+[parameters."/beta_a"]
+meaning = "Claim A の SI 拡散における 1 接触あたりの感染確率"
+
+[parameters."/p_bridge_b"]
+meaning = "Claim B（閾値カスケードのティッピング）を測るときの橋渡し確率"
+
+[parameters."/runs_b"]
+meaning = "Claim B を θ の各点で走らせる独立試行の本数"
+unit    = "count"
+
+[parameters."/n_seeds_b"]
+meaning = "Claim B のカスケードを起こす初期シード数"
+unit    = "count"
+
+[parameters."/quick"]
+meaning = "縮小規模で走らせるか（cluster_size と θ グリッドを動作確認用に落とす）"
